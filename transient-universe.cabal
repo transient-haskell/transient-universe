@@ -1,0 +1,67 @@
+name: transient-universe
+version: 0.2
+cabal-version: >=1.10
+build-type: Simple
+license: GPL-3
+license-file: LICENSE
+maintainer: agocorona@gmail.com
+homepage: http://www.fpcomplete.com/user/agocorona
+bug-reports: https://github.com/agocorona/transient/issues
+synopsis: wormholes,teleporting remote executions and map-reduce: distributed computing for transient
+description: see <http://github.com/agocorona/transient>
+category: Control
+author: Alberto G. Corona
+data-dir: ""
+
+source-repository head
+    type: git
+    location: https://github.com/agocorona/transient
+
+library
+    build-depends: transformers
+
+    if impl(ghcjs >=0.1)
+        build-depends: base >4 && <5, mtl , random ,
+                       containers , stm , transformers , process ,
+                       bytestring , time , ghcjs-base , ghcjs-prim
+        exposed: True
+        buildable: True
+    else
+        build-depends: base >4 && <5, mtl , random , transient,
+                       containers , directory , filepath , stm ,
+                       HTTP , network , transformers , process ,network,
+                       network-info , bytestring , time , vector ,
+                       TCache , websockets , network-uri ,
+                       case-insensitive , hashable , text
+        exposed: True
+        buildable: True
+
+    if impl(ghcjs >=0.1)
+        exposed-modules: Transient.Move
+
+        exposed: True
+        buildable: True
+    else
+        exposed-modules: Transient.DDS
+                         Transient.Move
+                         Transient.Move.Services
+        exposed: True
+        buildable: True
+    exposed: True
+    buildable: True
+    default-language: Haskell2010
+    hs-source-dirs: src .
+
+test-suite test-transient
+    build-depends:     base >4 && <5, mtl , random ,
+                       containers , directory , filepath , stm ,
+                       HTTP , network , transformers , process ,network,
+                       network-info , bytestring , time , vector ,
+                       TCache , websockets , network-uri ,
+                       case-insensitive , hashable
+    type: exitcode-stdio-1.0
+    main-is: TestSuite.hs
+    buildable: True
+    default-language: Haskell2010
+    hs-source-dirs: tests src .
+
