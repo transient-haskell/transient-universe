@@ -28,10 +28,10 @@ import qualified Network.BSD as BSD
 import qualified Network.WebSockets as NS(sendTextData,receiveData, Connection,RequestHead(..),sendClose)
 import qualified Network.WebSockets.Connection   as WS
 import Network.WebSockets.Stream   hiding(parse)
-import           Data.ByteString                    (ByteString)
+import           Data.ByteString       as B             (ByteString,concat)
 import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Lazy as BL
-import Network.Socket.ByteString as SBS(send,sendMany,recv)
+import Network.Socket.ByteString as SBS(send,sendMany,sendAll,recv)
 import Data.CaseInsensitive(mk)
 import Data.Char(isSpace)
 --import GHCJS.Perch (JSString)
@@ -1156,15 +1156,15 @@ httpMode (method,uri, headers) conn  = do
 
 
      else do
-          let uri'= BC.tail $ uriPath uri              -- !!> "HTTP REQUEST"
+          let uri'= BC.tail $ uriPath uri               !> "HTTP REQUEST"
               file= if BC.null uri' then "index.html" else uri'
 
           content <- liftIO $  BL.readFile ( "static/out.jsexe/"++ BC.unpack file)
                             `catch` (\(e:: SomeException) -> return "NOT FOUND")
-
-          n <- liftIO $ SBS.sendMany conn $ -- ["HTTP/1.0 200 OK\rContent-Type: text/html\r\r"] ++
+          return ()
+          n <- liftIO $ SBS.sendMany conn   $  ["HTTP/1.0 200 OK\nContent-Type: text/html\n\n"] ++
                                   (BL.toChunks content )
-
+          return () !> "HTTP sent"
           empty
 
       where
@@ -1202,8 +1202,8 @@ giveData h= do
 receiveHTTPHead h = do
   setSData $ ParseContext (giveData h) ""
   (method, uri, vers) <- (,,) <$> getMethod <*> getUri <*> getVers
-  headers <- many $ (,) <$> (mk <$> getParam) <*> getParamValue    --  !!> show (method, uri, vers)
-  return (method, uri, headers)                                    --  !!> show (method, uri, headers)
+  headers <- many $ (,) <$> (mk <$> getParam) <*> getParamValue     !>  (method, uri, vers)
+  return (method, uri, headers)                                    -- !>  (method, uri, headers)
 
   where
 
@@ -1212,7 +1212,6 @@ receiveHTTPHead h = do
   getVers= getString
   getParam= do
       dropSpaces
-
       r <- tTakeWhile (\x -> x /= ':' && x /= '\r')
       if BC.null r || r=="\r"  then  empty  else  dropChar >> return r
 
@@ -1236,7 +1235,7 @@ receiveHTTPHead h = do
     if  str == mempty then do
           str3 <- liftIO  rh
 
-          setSData $ ParseContext rh str3
+          setSData $ ParseContext rh str3                     -- !> str3
 
           if str3== mempty then empty   else  parse split
 

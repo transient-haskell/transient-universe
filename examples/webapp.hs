@@ -30,11 +30,7 @@ import Control.Monad.IO.Class
 
 main = simpleWebApp 2020 $  demo <|> demo2  <|>  counters
 
-notebook= do
-     r <- local . render $ textArea <*** wbutton () "send"
-     atServer $ do
-         -- execute with a pipe
-         exec
+
 
 demo= do
    name <- local . render $ do
@@ -71,8 +67,7 @@ demo2= do
           br
 
 --       inputString (Just "Your name") `fire` OnKeyUp       -- send once a char is entered
-       inputSubmit "sand" `fire` OnClick
-             <*** inputSubmit  "send" `fire` OnClick       -- optional, to resend it
+       inputString (Just "enter your name") `fire` OnKeyUp
              <++ br                                        -- new line
 
    r <- atServer $ lliftIO $ print (name ++ " calling") >> return ("Hi " ++ name)

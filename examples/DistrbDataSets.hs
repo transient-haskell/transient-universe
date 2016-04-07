@@ -2,7 +2,7 @@
 
 -- https://www.fpcomplete.com/user/agocorona/streaming-transient-effects-vi
 
-module DistrbDataSets where
+module Main where
 import Transient.Base
 import Transient.Move
 import Transient.DDS
@@ -12,7 +12,7 @@ import Control.Monad.IO.Class
 
 import Data.Monoid
 
-import qualified Data.Vector as V
+--import qualified Data.Vector as V
 import Data.TCache
 
 
@@ -29,7 +29,7 @@ main= do
           onAll $ addNodes nodes
           runNodes nodes
 
-          r <- reduce  (+)  . mapKey (\w -> (w, 1 :: Int)) -- $ textUrl "http://google.com"
+          r <- reduce  (+)  . mapKeyB (\w -> (w, 1 :: Int))
                             $ getText  words content
 
           lliftIO $  print  r

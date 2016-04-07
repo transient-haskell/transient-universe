@@ -2,7 +2,7 @@
 , FlexibleInstances, FlexibleContexts, UndecidableInstances, MultiParamTypeClasses #-}
 
 
-module Transient.DDS   (distribute, getText, getUrl, getFile,textUrl, textFile, mapKey, reduce) where
+module Transient.DDS   (distribute, getText, getUrl, getFile,textUrl, textFile, mapKeyB, mapKeyU, reduce) where
 import Transient.Base
 import Transient.Move hiding (pack)
 import Transient.Logged
@@ -110,12 +110,28 @@ instance (Loggable a,DVU.Unbox a) => Distributable DVU.Vector a where
    splitAt= DVU.splitAt
    fromList= DVU.fromList
 
+-- | perform a map and partition the result with different keys using boxed vectors
+-- The final result will be used by reduce.
+mapKeyB :: (Loggable a, Loggable b,  Loggable k,Ord k)
+     => (a -> (k,b))
+     -> DDS  (DV.Vector a)
+     -> DDS (M.Map k(DV.Vector b))
+mapKeyB= mapKey
+
+-- | perform a map and partition the result with different keys using unboxed vectors
+-- The final result will be used by reduce.
+mapKeyU :: (Loggable a, Loggable b,  Loggable k,Ord k)
+     => (a -> (k,b))
+     -> DDS  (DVU.Vector a)
+     -> DDS (M.Map k(DVU.Vector b))
+mapKeyU= mapKey
+
 -- | perform a map and partition the result with different keys.
--- The result will be used by reduce.
+-- The final result will be used by reduce.
 mapKey :: (Distributable vector a,Distributable vector b, Loggable k,Ord k)
      => (a -> (k,b))
      -> DDS  (vector a)
-     -> DDS (M.Map k(vector b))
+     -> DDS (M.Map k (vector b))
 mapKey f (DDS mx)= DDS $  do
         refs <-  mx
         process refs
@@ -160,7 +176,7 @@ reduce red  (dds@(DDS mx))= do
               m <-  getPartitionData ref   -- !> "GETPARTITIONDATA"
               let ass= M.assocs m
 
-              runCloud (parallelize  shuffle ass) `atEnd'` runCloud sendEnd
+              runCloud (parallelize  shuffle ass) <*** runCloud sendEnd
 
           stop
 
