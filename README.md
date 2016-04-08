@@ -2,9 +2,9 @@
 
 See the [Wiki](https://github.com/agocorona/transient/wiki)
 
-transient-universe is the distributed computing extension of transient.  It support moving computations (Haskell closures) from a computer in the network to another even among different architectures:  Linux nodes can work with windows and browser nodes running haskell compiled with (ghcjs](https://github.com/ghcjs/ghcjs). 
+transient-universe is the distributed computing extension of transient.  It support moving computations (Haskell closures) from a computer in the network to another even among different architectures:  Linux nodes can work with windows and browser nodes running haskell compiled with [ghcjs](https://github.com/ghcjs/ghcjs). 
 
-The primitives that perform the moving of computations are called `wormhole` and `teleport`, that best expresses the semantic. Hence the name of the package.
+The primitives that perform the moving of computations are called `wormhole` and `teleport`, the names expresses the semantic. Hence the name of the package.
 
 All the nodes run the same program compiled for different architectures. It defines a Cloud monad that run a single distributed programs in one or many nodes. 
 
@@ -13,7 +13,7 @@ Browser integration
 
 Browser nodes, running transient programs compiled with ghcjs are integrated with server nodes, using websockets communications. Just compile the program with ghcjs and point the browser to http://server:port. The server nodes have a HTTP server that will send the compiled program to the browser.
 
-Widgets
+Distributed Browser/server Widgets
 -------
 Browser nodes can integrate Hplayground for ghcjs, a reactive client side library based in trasient (package ghcjs-hplay) they can create widgets with HTML form elements and control the server nodes. A computation can move from browser to server and back at runtime despite the different architecture.  
 
