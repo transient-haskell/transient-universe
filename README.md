@@ -25,6 +25,8 @@ transient-universe implements map-reduce in the style of [spark](http://spark.ap
 
 Look at [this article](https://www.schoolofhaskell.com/user/agocorona/estimation-of-using-distributed-computing-streaming-transient-effects-vi-1#distributed-datasets)
 
+Currently I'm profiling to make map-reduce more efficient. It is not yet ready for serous data analysis.
+
 General distributed primitives
 =============================
 `teleport` is a  primitive that translates computations back and forth reusing an already opened connection. 
@@ -78,6 +80,15 @@ then point a browser to: http:localhost:2020
 See this [video](https://www.livecoding.tv/agocorona/videos/Ke1Qz-seamless-composable-web-programming) to see this example running: 
 
 The test program run among other things, two copies of a widget that start, stop and display a counter that run in the server.
+
+
+Future plans
+============
+The only way to improve it is using it. Please send me bugs and additional functionalities!
+
+-I plan to improve map-reduce to create a viable platform for serious data analysis and machine learning using haskell. It will have a  web notebook running in the browser. 
+
+-Create services and examples for general Web applications with distributed servers and create services for them
 
 
 
