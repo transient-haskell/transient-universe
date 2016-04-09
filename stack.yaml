@@ -1,7 +1,10 @@
 
 flags: {}
+
 packages:
 - '.'
 - ../transient
+
 extra-deps: [transient-0.2]
+
 resolver: lts-3.1

@@ -120,7 +120,7 @@ mapKeyB= mapKey
 
 -- | perform a map and partition the result with different keys using unboxed vectors
 -- The final result will be used by reduce.
-mapKeyU :: (Loggable a, Loggable b,  Loggable k,Ord k)
+mapKeyU :: (Loggable a, DVU.Unbox a, Loggable b, DVU.Unbox b,  Loggable k,Ord k)
      => (a -> (k,b))
      -> DDS  (DVU.Vector a)
      -> DDS (M.Map k(DVU.Vector b))

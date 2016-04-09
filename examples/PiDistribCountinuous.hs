@@ -87,7 +87,7 @@ mainDistributed= do
         numCalcsNode= 100
     rresults <- liftIO $ newIORef (0,0)
 
-    runCloud' $ do
+    runCloudIO $ do
        connect mynode seedNode
 
        local $ option  "start"  "start the calculation once all the nodes have been started"  :: Cloud String

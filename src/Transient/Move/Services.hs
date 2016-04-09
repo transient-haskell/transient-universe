@@ -126,7 +126,7 @@ notifyService node service=  clustered $ do
      local $ sendNodeEvent (node,service)
      return ()
 
-
+{-
 main= do
 --      keep $ install "http://github.com/agocorona/transient" "MainStreamFiles"  3000
     let node1= createNode "localhost" 2000
@@ -135,7 +135,7 @@ main= do
     let [localNode,remoteNode]= if null args then [node1,node2] else [node2,node1]
 
 
-    runCloud' $ do
+    runCloudIO $ do
       onAll $ addNodes [localNode, remoteNode]
       onAll $ setMyNode localNode
       listen localNode <|> return ()
@@ -144,11 +144,7 @@ main= do
       startServices
       port <-initService remoteNode "http://github.com/agocorona/transient" "MainStreamFiles"
       onAll . liftIO $ putStrLn $ "installed at" ++ show port
---      nodes <- getNodes
---      liftIO $ print nodes
---      liftIO syncCache
---      option "end" "end"
---      liftIO $ print "END"
+-}
 
 
 

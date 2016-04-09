@@ -14,6 +14,7 @@ dist
 *.js*
 *.o
 *.hi
+*.exe
 .cabal-sandbox
 cabal.sanbox.config
 .stack*

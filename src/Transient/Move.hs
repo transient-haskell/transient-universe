@@ -110,16 +110,16 @@ local =  Cloud . logged
 
 
 
-#ifndef ghcjs_HOST_OS
+-- #ifndef ghcjs_HOST_OS
 -- | run the cloud computation.
-runCloud' :: Cloud a -> IO a
-runCloud' (Cloud mx)= keep mx
+runCloudIO :: Cloud a -> IO a
+runCloudIO (Cloud mx)= keep mx
 
 -- | run the cloud computation with no console input
-runCloud'' :: Cloud a -> IO a
-runCloud'' (Cloud mx)= keep' mx
+runCloudIO' :: Cloud a -> IO a
+runCloudIO' (Cloud mx)= keep' mx
 
-#endif
+-- #endif
 
 -- | alternative to `local` It means that if the computation is translated to other node
 -- this will be executed again if this has not been executed inside a `local` computation.
@@ -1089,39 +1089,6 @@ connect  node  remotenode =   do
     onAll $ liftIO $ putStrLn $ "Connected to nodes: " ++ show nodes
     onAll $ addNodes nodes
 
-{-
-#ifndef ghcjs_HOST_OS
-listen1 node remotenode = listen node <|> return ()
-#else
-listen1 node remotenode = onAll $ do
-       conn <- mconnect remotenode
-       release remotenode conn
-       setSData conn                    -- !!>  "OPENED in listen1"
-
-       do
-           r <- mread conn
-           log <- case r of
-                     SError e -> do
-
-                           release remotenode conn
-                           error $ show e
-                     SDone ->  do
-                          release remotenode conn
-                          empty
-
-                     SMore log -> return log
-                     SLast log -> do
-                         release remotenode conn
-                         return log
-
-           setSData $ Log True log (reverse log)   -- !!> show log
-
-        <|> return ()
-
-
-
-#endif
--}
 
 --------------------------------------------
 
@@ -1156,15 +1123,15 @@ httpMode (method,uri, headers) conn  = do
 
 
      else do
-          let uri'= BC.tail $ uriPath uri               !> "HTTP REQUEST"
+          let uri'= BC.tail $ uriPath uri               -- !> "HTTP REQUEST"
               file= if BC.null uri' then "index.html" else uri'
 
           content <- liftIO $  BL.readFile ( "static/out.jsexe/"++ BC.unpack file)
                             `catch` (\(e:: SomeException) -> return "NOT FOUND")
           return ()
-          n <- liftIO $ SBS.sendMany conn   $  ["HTTP/1.0 200 OK\nContent-Type: text/html\n\n"] ++
+          n <- liftIO $ SBS.sendMany conn   $  ["HTTP/1.0 200 OK\nContent-Type: text/html\nConnection: close\nContent-Length: " <> BC.pack (show $ BL.length content) <>"\n\n"] ++
                                   (BL.toChunks content )
-          return () !> "HTTP sent"
+          return ()    -- !> "HTTP sent"
           empty
 
       where
@@ -1202,7 +1169,7 @@ giveData h= do
 receiveHTTPHead h = do
   setSData $ ParseContext (giveData h) ""
   (method, uri, vers) <- (,,) <$> getMethod <*> getUri <*> getVers
-  headers <- many $ (,) <$> (mk <$> getParam) <*> getParamValue     !>  (method, uri, vers)
+  headers <- many $ (,) <$> (mk <$> getParam) <*> getParamValue    -- !>  (method, uri, vers)
   return (method, uri, headers)                                    -- !>  (method, uri, headers)
 
   where

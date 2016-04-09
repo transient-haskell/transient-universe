@@ -5,13 +5,13 @@ module Main where
 import Prelude hiding (div,id,span)
 import Transient.Base
 #ifdef ghcjs_HOST_OS
-   hiding ( option,runCloud')
+   hiding ( option)
 #endif
 import GHCJS.HPlay.View
 #ifdef ghcjs_HOST_OS
    hiding (map)
 #else
-   hiding (map, option,runCloud')
+   hiding (map, option)
 #endif
 
 import Transient.Move
@@ -81,16 +81,6 @@ demo2= do
 fs= toJSString
 
 
-
-
--- To demonstrate wormhole, teleport, widgets, interactive streaming
--- and composability in a web application.
---
--- This is one of the most complicated interactions: how to control a stream in the server
--- by means of a web interface without loosing composability.
---
--- in this example, events flow from the server to the browser (a counter) and back from
--- the browser to the server (initiating and cancelling the counters)
 
 
 counters= do
