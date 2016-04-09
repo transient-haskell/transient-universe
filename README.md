@@ -6,7 +6,7 @@ transient-universe is the distributed computing extension of transient.  It supp
 
 The primitives that perform the moving of computations are called `wormhole` and `teleport`, the names expresses the semantic. Hence the name of the package.
 
-All the nodes run the same program compiled for different architectures. It defines a Cloud way of computing (monad). It is a thin layer on top of transient with additional primitives and services that run a single program in one or many nodes.
+All the nodes run the same program compiled for different architectures. It defines a Cloud way of computing (monad). It is a thin layer on top of transient with additional primitives and services that run a single program  in one or many nodes.
 
 Browser integration
 ==================
