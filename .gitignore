@@ -15,6 +15,7 @@ dist
 *.o
 *.hi
 *.exe
+*-lks*
 .cabal-sandbox
 cabal.sanbox.config
 .stack*

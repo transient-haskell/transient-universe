@@ -63,7 +63,7 @@ library
             Transient.Move
     else
         exposed-modules:
-            Transient.DDS
+            Transient.MapReduce
             Transient.Move
             Transient.Move.Services
     build-depends:
@@ -81,9 +81,10 @@ library
 --        TCache -any,
 --        transformers -any,
 --        transient-universe -any,
---        containers >=0.5.6.2 && <0.6
+--        containers -any
+--
 --    hs-source-dirs: examples
---    ghc-options: -prof -auto-all -rtsopts -threaded
+--    ghc-options:
 
 test-suite test-transient
     type: exitcode-stdio-1.0
