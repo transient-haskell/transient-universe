@@ -32,11 +32,13 @@ addNodes, shuffleNodes,
 
 
 
- getWebServerNode, Node(..), nodeList, Connection(..),MyNode(..), Service()
+ getWebServerNode, Node(..), nodeList, Connection(..),MyNode(..), Service(),
+ isBrowserInstance
+
 
 ) where
 import Transient.Base
-import Transient.Internals(killChildren,EventF(..),LogElem(..),Log(..),onNothing,RemoteStatus(..),getCont)
+import Transient.Internals(killChildren,getCont,runCont,EventF(..),LogElem(..),Log(..),onNothing,RemoteStatus(..),getCont)
 import Transient.Logged
 import Transient.EVars
 import Transient.Stream.Resource
