@@ -47,7 +47,7 @@ demo= do
    -- stream fibonancci
 
    r <-  atServer $ do
-               let fibs= 0 : 1 : zipWith (+) fibs (tail fibs) :: [Int]  --fibonacci numb. definition
+               let fibs= 0 : 1 : zipWith (+) fibs (tail fibs) :: [Int]  -- fibonacci numb. definition
 
                r <- local  . threads 1 . choose $ take 10 fibs
                lliftIO $ print r

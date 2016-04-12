@@ -1,0 +1,14 @@
+Version of workspace file format:
+               2
+Time of storage:
+               "Tue Apr 12 13:53:31 Hora de verano romance 2016"
+Name of the workspace:
+               "transient-universe.cabal"
+File paths of contained packages:
+               ["C:\\Users\\magocoal\\OneDrive\\Haskell\\devel\\ghcjs-hplay\\ghcjs-hplay.cabal","C:\\Users\\magocoal\\OneDrive\\Haskell\\devel\\transient\\transient.cabal","transient-universe.cabal"]
+Maybe file path of an active package:
+               Just "C:\\Users\\magocoal\\OneDrive\\Haskell\\devel\\ghcjs-hplay\\ghcjs-hplay.cabal"
+Maybe name of an active executable:
+               Nothing
+Version Control System configurations for packages:
+               fromList []

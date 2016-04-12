@@ -13,8 +13,30 @@
 {-# LANGUAGE DeriveDataTypeable , ExistentialQuantification, OverloadedStrings
     ,ScopedTypeVariables, StandaloneDeriving, RecordWildCards, FlexibleContexts, CPP
     ,GeneralizedNewtypeDeriving #-}
-module Transient.Move where
-import Transient.Base hiding (stop)
+module Transient.Move(
+
+Cloud(..),runCloudIO, runCloudIO',local,onAll, loggedc, lliftIO,
+listen, connect,
+
+wormhole, teleport, copyData,
+
+beamTo, forkTo, streamFrom, callTo, callTo',runAt,
+
+clustered, mclustered,
+
+newMailBox, putMailBox,getMailBox, sendNodeEvent, waitNodeEvents,
+setBuffSize, getBuffSize,
+
+createNode, createWebNode, getMyNode, setMyNode, getNodes,
+addNodes, shuffleNodes,
+
+
+
+ getWebServerNode, Node(..), nodeList, Connection(..),MyNode(..), Service()
+
+) where
+import Transient.Base
+import Transient.Internals(killChildren,EventF(..),LogElem(..),Log(..),onNothing,RemoteStatus(..),getCont)
 import Transient.Logged
 import Transient.EVars
 import Transient.Stream.Resource
@@ -762,8 +784,8 @@ defConnection size= Connection () Nothing  size
 
 
 #ifndef ghcjs_HOST_OS
-setBufSize :: Int -> TransIO ()
-setBufSize size= Transient $ do
+setBuffSize :: Int -> TransIO ()
+setBuffSize size= Transient $ do
    conn<- getData `onNothing` return (defConnection 8192)
    setData $ conn{bufferSize= size}
    return $ Just ()
@@ -881,17 +903,6 @@ listen  (node@(Node _  (PortNumber port) _ _)) = onAll $ do
              SMore log -> setSData $ Log True log (reverse log)
              SLast log -> setSData $ Log True log (reverse log)
 --   liftIO $ print "END LISTEN"
-
-
-
--- | init a Transient process in a interactive as well as in a replay mode.
--- It is intended for twin processes that interact among them in different nodes.
-beamInit :: Node  -> Cloud a -> IO a
-beamInit  node  program =   keep transio
-  where
-  Cloud transio=  do
-    listen  node   <|> return ()
-    program
 
 
 

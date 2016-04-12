@@ -4,10 +4,10 @@
 
 module Transient.MapReduce   (Distributable(..),distribute, getText, getUrl, getFile,textUrl, textFile, mapKeyB, mapKeyU, reduce) where
 import Transient.Base
+import Transient.Internals(onNothing)
 import Transient.Move hiding (pack)
 import Transient.Logged
 import Transient.Indeterminism
-
 import Control.Applicative
 import System.Random
 import Control.Monad.IO.Class
@@ -209,17 +209,27 @@ reduce red  (dds@(DDS mx))= do
                     -- !> "ENDREDUCE"
 
 
-       reducer=   mclustered reduce    -- a reduce process in each node
+       reducer=   mclustered reduce1    -- a reduce1 process in each node, get the results and mappend them
 
 --     reduce :: (Ord k)  => Cloud (M.Map k v)
 
-       reduce =  local $ do
+       reduce1 =  local $ do
            reduceResults <- liftIO $ newMVar M.empty  -- !>  "CREATE MVAR for results"
            numberSent <- liftIO $ newMVar 0
            minput <- getMailBox box  -- get the chunk once it arrives to the mailbox
 
            case minput  of -- !> ("received",minput) of
-             Reduce kv -> do
+             EndReduce -> do
+                n <- liftIO $ modifyMVar numberSent $ \r -> return (r+1, r+1)
+                if n == lengthNodes                         -- !> ( n, lengthNodes)
+                 then liftIO $ readMVar reduceResults     -- !> "END reduce"
+
+                 else stop
+
+             Reduce kvs ->
+
+
+              do
                 let addIt (k,inp) = do
                             let input= inp `asTypeOf` atype dds
                             liftIO $ modifyMVar_ reduceResults
@@ -228,16 +238,9 @@ reduce red  (dds@(DDS mx))= do
                                       return $ M.insert k (case maccum of
                                         Just accum ->  red input accum
                                         Nothing    ->  input) map
-                mapM addIt  (kv `asTypeOf` paramOf' dds)
+                mapM addIt  (kvs `asTypeOf` paramOf' dds)
+                stop
 
-                empty
-
-             EndReduce -> do
-                n <- liftIO $ modifyMVar numberSent $ \r -> return (r+1, r+1)
-                if n == lengthNodes                         -- !> ( n, lengthNodes)
-                 then liftIO $ readMVar reduceResults     -- !> "END reduce"
-
-                 else empty
 
    reducer <|> shuffler
    where
@@ -459,7 +462,7 @@ getTempName=  ("DDS" ++) <$> replicateM  5 (randomRIO ('a','z'))
 
 -------------- Distributed  Datasource Streams ---------
 -- | produce a stream of DDS's that can be map-reduced. Similar to spark streams.
--- each interval of time,a new DDS is produced.
+-- each interval of time,a new DDS is produced.(to be tested)
 streamDDS
   :: (Loggable a, Distributable vector a) =>
      Integer -> IO (StreamData a) -> DDS (vector a)
