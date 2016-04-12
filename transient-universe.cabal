@@ -58,13 +58,12 @@ library
             hashable -any,
             text -any
 
-    if impl(ghcjs >=0.1)
-        exposed-modules:
+    exposed-modules:
             Transient.Move
-    else
+    if ! impl(ghcjs >=0.1)
+
         exposed-modules:
             Transient.MapReduce
-            Transient.Move
             Transient.Move.Services
     build-depends:
         transformers -any,
