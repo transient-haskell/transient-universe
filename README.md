@@ -2,7 +2,7 @@
 
 See the [Wiki](https://github.com/agocorona/transient/wiki)
 
-transient-universe is the distributed computing extension of transient.  It support moving computations (Haskell closures) from a computer in the network to another even among different architectures:  Linux nodes can work with windows and browser nodes running haskell compiled with [ghcjs](https://github.com/ghcjs/ghcjs).
+transient-universe is the distributed computing extension of [transient](https://github.com/agocorona/transient).  It support moving computations (Haskell closures) from a computer in the network to another even among different architectures:  Linux nodes can work with windows and browser nodes running haskell compiled with [ghcjs](https://github.com/ghcjs/ghcjs).
 
 The primitives that perform the moving of computations are called `wormhole` and `teleport`, the names expresses the semantic. Hence the name of the package.
 
@@ -80,6 +80,25 @@ then point a browser to: http:localhost:2020
 See this [video](https://www.livecoding.tv/agocorona/videos/Ke1Qz-seamless-composable-web-programming) to see this example running:
 
 The test program run among other things, two copies of a widget that start, stop and display a counter that run in the server.
+
+Documentation
+=============
+
+The [Wiki](https://github.com/agocorona/transient/wiki) is more user oriented
+
+My video sessions in [livecoding.tv](https://www.livecoding.tv/agocorona/videos/) not intended as tutorials or presentations, but show some of the latest features running.
+
+The articles are more tecnical:
+
+- [Philosophy, async, parallelism, thread control, events, Session state](https://www.fpcomplete.com/user/agocorona/EDSL-for-hard-working-IT-programmers?show=tutorials)
+- [Backtracking and undoing IO transactions](https://www.fpcomplete.com/user/agocorona/the-hardworking-programmer-ii-practical-backtracking-to-undo-actions?show=tutorials)
+- [Non-deterministic list like processing, multithreading](https://www.fpcomplete.com/user/agocorona/beautiful-parallel-non-determinism-transient-effects-iii?show=tutorials)
+- [Distributed computing](https://www.fpcomplete.com/user/agocorona/moving-haskell-processes-between-nodes-transient-effects-iv?show=tutorials)
+- [Publish-Subscribe variables](https://www.schoolofhaskell.com/user/agocorona/publish-subscribe-variables-transient-effects-v)
+- [Distributed streaming, map-reduce](https://www.schoolofhaskell.com/user/agocorona/estimation-of-using-distributed-computing-streaming-transient-effects-vi-1)
+
+These articles contain executable examples (not now, since the site no longer support the execution of haskell snippets).
+
 
 
 Future plans
