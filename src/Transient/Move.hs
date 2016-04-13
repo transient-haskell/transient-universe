@@ -740,7 +740,10 @@ sendRemoteNodeEvent node dat= runAt node $ local $ sendNodeEvent dat
 newMailBox :: MonadIO m => m String
 newMailBox= liftIO $ replicateM  10 (randomRIO ('a','z'))
 
+putMailBox :: Typeable a => String -> a -> TransIO ()
 putMailBox name dat= sendNodeEvent (name, dat)
+
+getMailBox :: Typeable a => String -> TransIO a
 getMailBox name= do
      (nam, dat) <- waitNodeEvents
      if nam /= name then empty else  return dat
@@ -756,7 +759,7 @@ sendNodeEvent dat=  Transient $ do
 -- | wait until a message of the type expected appears in the mailbox. Then executes the continuation
 -- When the message appears, all the waiting `waitNodeEvents` are executed from newer to the older
 -- following the `readEVar` order.
-waitNodeEvents :: Loggable a => TransIO a
+waitNodeEvents :: Typeable a => TransIO a
 waitNodeEvents = Transient $  do
        Connection{comEvent=comEvent} <- getData `onNothing` error "waitNodeEvents: accessing network events out of listen"
        runTrans  $ do
