@@ -16,24 +16,27 @@
 module Transient.Move(
 
 Cloud(..),runCloudIO, runCloudIO',local,onAll, loggedc, lliftIO,
-listen, connect,
+listen, Transient.Move.connect,
 
 wormhole, teleport, copyData,
 
-beamTo, forkTo, streamFrom, callTo, callTo',runAt,
+beamTo, forkTo, streamFrom, callTo, runAt,
 
 clustered, mclustered,
 
 newMailBox, putMailBox,getMailBox, sendNodeEvent, waitNodeEvents,
+
+#ifndef ghcjs_HOST_OS
 setBuffSize, getBuffSize,
+#endif
 
 createNode, createWebNode, getMyNode, setMyNode, getNodes,
 addNodes, shuffleNodes,
 
-
+-- * low level
 
  getWebServerNode, Node(..), nodeList, Connection(..),MyNode(..), Service(),
- isBrowserInstance
+ isBrowserInstance, IdLine(..), Repeat(..), Prefix(..), addPrefix
 
 
 ) where
@@ -481,9 +484,6 @@ data Repeat= Repeat | RepeatHandled JSString deriving (Eq, Read, Show)
 addPrefix= Transient $ do
    r <- liftIO $ replicateM  5 (randomRIO ('a','z'))
 
---   n <- genId
---   Prefix s <- getData `onNothing` return ( Prefix "")
---   setSData $ Prefix (pack( 's': show n)<> s)
    setSData $ Prefix $ pack  r
    return $ Just ()
 
@@ -1073,16 +1073,24 @@ shuffleNodes=  liftIO . atomically $ do
 -- >    createLocalNode n= createNode "localhost" (PortNumber n)
 clustered :: Loggable a  => Cloud a -> Cloud a
 clustered proc= loggedc $ do
-     nodes <-  onAll getNodes
-     foldr (<|>) empty $ map (\node -> runAt node proc) nodes  -- !> ("clustered",nodes)
-
+    nodes <-  onAll getNodes
+    let nodes' = filter (not . isWebNode) nodes
+    foldr (<|>) empty $ map (\node -> runAt node proc) nodes'  -- !> ("clustered",nodes')
+    where
+    isWebNode (WebNode _)= True
+    isWebNode _= False
 
 
 -- A variant of `clustered` that wait for all the responses and `mappend` them
 mclustered :: (Monoid a, Loggable a)  => Cloud a -> Cloud a
 mclustered proc= loggedc $ do
-     nodes <-  onAll getNodes
-     foldr (<>) mempty $ map (\node -> runAt node proc) nodes  -- !> ("mclustered",nodes)
+    nodes <-  onAll getNodes
+    let nodes' = filter (not . isWebNode) nodes
+    foldr (<>) mempty $ map (\node -> runAt node proc) nodes'  -- !> ("mclustered",nodes')
+    where
+    isWebNode (WebNode _)= True
+    isWebNode _= False
+
 
 -- | Initiates the transient monad, initialize it as a new node (first parameter) and connect it
 -- to an existing node (second parameter).

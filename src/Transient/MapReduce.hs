@@ -110,6 +110,9 @@ instance (Loggable a,DVU.Unbox a) => Distributable DVU.Vector a where
    splitAt= DVU.splitAt
    fromList= DVU.fromList
 
+
+
+
 -- | perform a map and partition the result with different keys using boxed vectors
 -- The final result will be used by reduce.
 mapKeyB :: (Loggable a, Loggable b,  Loggable k,Ord k)

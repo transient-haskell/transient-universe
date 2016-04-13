@@ -22,37 +22,24 @@ import Data.Typeable
 import Data.IORef
 import Control.Concurrent (threadDelay)
 import Control.Monad.IO.Class
+import Data.Vector
 
 
 -- Show the composability of transient web aplications
 -- with three examples composed together, each one is a widget that execute
 -- code in the browser AND the server.
 
-main =   do
-    serverNode  <- getWebServerNode port
+main =   simpleWebApp 8080 app
 
-    let  mynode    = if isBrowserInstance
-                       then createWebNode
-                       else serverNode
-
-    runCloudIO $ do
-
-          setData serverNode
-          connect serverNode
-          -- remove the web node
-          nodes <- getNodes
-          setNodes $ filter not(isWebNode) nodes
-
-          app
-    return ()
-
-isWebNode (WebNode _)= True
-isWebNode _= False
 
 app= do
-    t <- textArea "enter the content"  <** wbutton "send"
-    mclustered
+    content <- local . render $ textArea ("enter the content") <** wbutton () "send"
+    r <- atServer reduce  (+) . mapKeyB (\w -> (w, 1 :: Int))
+                              . distribute
+                              . V.fromList
+                              . words content
 
+    local . render $ rawHtml $ H1 r
 demo= do
    name <- local . render $ do
        rawHtml $ do
@@ -66,7 +53,7 @@ demo= do
    local . render $ wlink () (p " stream fibonacci numbers")
 
    -- stream fibonancci
-
+fibw= do
    r <-  atServer $ do
                let fibs= 0 : 1 : zipWith (+) fibs (tail fibs) :: [Int]  -- fibonacci numb. definition
 
