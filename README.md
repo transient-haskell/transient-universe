@@ -25,7 +25,12 @@ transient-universe implements map-reduce in the style of [spark](http://spark.ap
 
 Look at [this article](https://www.schoolofhaskell.com/user/agocorona/estimation-of-using-distributed-computing-streaming-transient-effects-vi-1#distributed-datasets)
 
-Currently I'm profiling to make map-reduce more efficient. It is not yet ready for serous data analysis.
+There is a runnable example: [DistrbDataSet.hs](https://github.com/agocorona/transient-universe/blob/master/examples/DistrbDataSets.hs) that you can executed with:
+
+> runghc ./examples/DistrbDataSet.hs
+
+It uses a number of simulated nodes to calculate the frequency of words in a long text.
+
 
 General distributed primitives
 =============================
