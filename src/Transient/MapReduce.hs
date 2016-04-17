@@ -2,9 +2,14 @@
 , FlexibleInstances, FlexibleContexts, UndecidableInstances, MultiParamTypeClasses #-}
 
 
-module Transient.MapReduce   (Distributable(..),distribute, getText, getUrl, getFile,textUrl, textFile, mapKeyB, mapKeyU, reduce) where
+module Transient.MapReduce   (
+
+DDS,Distributable(..),distribute, getText,
+getUrl, getFile,textUrl, textFile,
+mapKeyB, mapKeyU, reduce,eval,
+PartRef) where
 import Transient.Base
-import Transient.Internals(onNothing)
+import Transient.Internals(onNothing,(!>))
 import Transient.Move hiding (pack)
 import Transient.Logged
 import Transient.Indeterminism
@@ -63,8 +68,8 @@ instance Loggable a => IResource (Partition a) where
           unless (not save) $ defaultWrite (defPath s ++ key s) (pack $ show s)
 
 
-eval :: DDS a -> TransIO (PartRef a)
-eval (DDS mx) = runCloud mx
+eval :: DDS a -> Cloud (PartRef a)
+eval (DDS mx) =  mx
 
 
 type Path=String
@@ -169,7 +174,8 @@ data ReduceChunk a= EndReduce | Reduce a deriving (Typeable, Read, Show)
 reduce ::  (Hashable k,Ord k, Distributable vector a, Loggable k,Loggable a)
              => (a -> a -> a) -> DDS (M.Map k (vector a)) ->Cloud (M.Map k a)
 
-reduce red  (dds@(DDS mx))= do
+reduce red  (dds@(DDS mx))= loggedc $ do
+
    box <- local newMailBox
    nodes <- onAll getNodes
 
@@ -187,12 +193,12 @@ reduce red  (dds@(DDS mx))= do
 --       shuffle ::( Hashable k, Distributable vector a) =>M.Map k (vector a) -> Cloud ()
        shuffle mpairs=do
            let destinations= groupByDestiny mpairs  -- ::  M.Map Int (k, vector a)
-           parallelize foldAndSend $ M.assocs destinations
+           parallelize foldAndSend $ M.assocs destinations          !> M.assocs destinations
            where
 --           foldAndSend :: (Hashable k, Distributable vector a)=> (Int,[(k,vector a)]) -> Cloud ()
            foldAndSend (i,kvs)= do
                     let folded= map (\(k,vs) -> (k,foldl1 red vs))  kvs
-                    runAt  (nodes !! i) $ local $ putMailBox box $ Reduce folded
+                    (runAt  (nodes !! i) $ local $ putMailBox box $ Reduce folded)  !> ("send",i,folded)
 
             --  agrupa segun nodo de destino:
 
@@ -204,19 +210,20 @@ reduce red  (dds@(DDS mx))= do
 --              f ::  M.Map Int [(k ,vector a)] -> k -> vector a -> M.Map Int [(k ,vector a)]
               f map k vs= M.insertWith f1 (hash1 k) [(k,vs)] map
 
-              f1  v1 v2= v1<> v2
+              f1  v1 v2= v1 <> v2
               hash1 k= abs $ hash k `rem` length nodes
 
 
-       sendEnd =  (clustered $ local $ putMailBox box (EndReduce `asTypeOf` paramOf dds))
-                    -- !> "ENDREDUCE"
+       sendEnd =  clustered . local $ putMailBox box (EndReduce `asTypeOf` paramOf dds) !> "SENDEND"
+
 
 
        reducer=   mclustered reduce1    -- a reduce1 process in each node, get the results and mappend them
 
 --     reduce :: (Ord k)  => Cloud (M.Map k v)
 
-       reduce1 =  local $ do
+       reduce1 = local $ do
+
            reduceResults <- liftIO $ newMVar M.empty  -- !>  "CREATE MVAR for results"
            numberSent <- liftIO $ newMVar 0
            minput <- getMailBox box  -- get the chunk once it arrives to the mailbox
@@ -224,15 +231,12 @@ reduce red  (dds@(DDS mx))= do
            case minput  of -- !> ("received",minput) of
              EndReduce -> do
                 n <- liftIO $ modifyMVar numberSent $ \r -> return (r+1, r+1)
-                if n == lengthNodes                         -- !> ( n, lengthNodes)
-                 then liftIO $ readMVar reduceResults     -- !> "END reduce"
+                if n == lengthNodes
+                 then liftIO $ readMVar reduceResults                        !> "Received END reduce"
 
                  else stop
 
-             Reduce kvs ->
-
-
-              do
+             Reduce kvs ->  do
                 let addIt (k,inp) = do
                             let input= inp `asTypeOf` atype dds
                             liftIO $ modifyMVar_ reduceResults
@@ -241,7 +245,7 @@ reduce red  (dds@(DDS mx))= do
                                       return $ M.insert k (case maccum of
                                         Just accum ->  red input accum
                                         Nothing    ->  input) map
-                mapM addIt  (kvs `asTypeOf` paramOf' dds)
+                mapM addIt  (kvs `asTypeOf` paramOf' dds)                    !> ("Received Reduce",kvs)
                 stop
 
 
@@ -255,72 +259,7 @@ reduce red  (dds@(DDS mx))= do
      paramOf'  :: DDS (M.Map k (vector a)) ->  [( k,  a)]
      paramOf' = undefined -- type level
 
-{-
-reduce red  (dds@(DDS mx))= do
-   box <- local newMailBox
-   nodes <- onAll getNodes
 
-   let lengthNodes = length nodes
-       shuffler=   do
-          ref <- mx
-          local $ do
-              m <-  getPartitionData ref   -- !> "GETPARTITIONDATA"
-              let ass= M.assocs m
-
-              runCloud (parallelize shuffle ass) <*** runCloud sendEnd
-
-          stop
-
---       shuffle ::(k,vector a) -> Cloud ()
-       shuffle part | null part = empty
-                    | otherwise = do
-
-                         let (k,vs)= part
-                             v= foldl1 red vs
-                             i=  abs $ hash k `rem` length nodes
-                         runAt  (nodes !! i) $ local $ putMailBox box $ Reduce (k,v)
-                             -- !> (" PUTMAILBOX ",i,v)
-         stop   :: Cloud ()
-
-       sendEnd =  (clustered $ local $ putMailBox box (EndReduce `asTypeOf` paramOf dds))  -- !> "ENDREDUCE"
-
-
-       reducer=   mclustered reduce    -- a reduce process in each node
-
---     reduce :: (Ord k)  => Cloud (M.Map k v)
-
-       reduce =  local $ do
-           reduceResults <- liftIO $ newMVar M.empty  -- !>  "CREATE MVAR for results"
-           numberSent <- liftIO $ newMVar 0
-           minput <- getMailBox box  -- get the chunk once it arrives to the mailbox
-
-           case minput  of -- !> ("received",minput) of
-             Reduce (k,inp) -> do
-                let input= inp `asTypeOf` atype dds
-
-                liftIO $ modifyMVar_ reduceResults
-                       $ \map -> do
-                          let maccum =  M.lookup k map
-                          return $ M.insert k (case maccum of
-                            Just accum ->  red input accum
-                            Nothing    ->  input) map
-                empty
-
-             EndReduce -> do
-                n <- liftIO $ modifyMVar numberSent $ \r -> return (r+1, r+1)
-                if n == lengthNodes                         -- !> ( n, lengthNodes)
-                 then liftIO $ readMVar reduceResults     -- !> "END reduce"
-
-                 else empty
-
-   reducer <|> shuffler
-   where
-     atype ::DDS(M.Map k (vector a)) ->  a
-     atype = undefined -- type level
-
-     paramOf  :: DDS (M.Map k (vector a)) -> ReduceChunk( k,  a)
-     paramOf = undefined -- type level
--}
 
 
 --parallelize :: Loggable b => (a -> Cloud b) -> [a] -> Cloud b
@@ -395,11 +334,14 @@ distribute'' xss nodes =
 -- | input data from a text that must be static and shared by all the nodes
 getText  :: (Loggable a, Distributable vector a) => (String -> [a]) -> String -> DDS (vector a)
 getText part str= DDS $ do
-   nodes <- onAll getNodes                                        -- !> "DISTRIBUTE"
+   nodes' <- onAll getNodes                                        -- !> "DISTRIBUTE"
+   let nodes = filter (not . isWebNode) nodes'
    let lnodes = length nodes
 
-   parallelize  (process lnodes)  $ zip nodes [0..lnodes]    -- !> show xss
+   parallelize  (process lnodes)  $ zip nodes [0..lnodes]   -- !> show xss
    where
+   isWebNode (WebNode _)= True
+   isWebNode _= False
    process lnodes (node,i)= runAt node $ local $   do
                         let xs = part str
                             size= case length xs `div` lnodes of 0 ->1 ; n -> n

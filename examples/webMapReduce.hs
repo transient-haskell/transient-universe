@@ -3,7 +3,9 @@
 module Main where
 
 import Prelude hiding (div,id,span)
+import Transient.Internals ((!>))
 import Transient.Base
+
 #ifdef ghcjs_HOST_OS
    hiding ( option)
 #endif
@@ -15,14 +17,30 @@ import GHCJS.HPlay.View
 #endif
 
 import Transient.Move
-import Transient.Indeterminism
+import Transient.Logged
 import Control.Applicative
 import Control.Monad
 import Data.Typeable
 import Data.IORef
 import Control.Concurrent (threadDelay)
 import Control.Monad.IO.Class
-import Data.Vector
+import qualified Data.Vector as V
+import qualified Data.Map as M
+
+#ifndef ghcjs_HOST_OS
+import Transient.MapReduce
+--message= lliftIO $ print "hello"  >> return (M.fromList [("hello",1::Int)])
+
+#else
+
+-- dummy Transient.MapReduce module
+reduce _ _ = local stop :: Loggable a => Cloud a
+mapKeyB _ _= undefined
+distribute _ = undefined
+getText _ _ = undefined
+eval _= undefined
+data PartRef a=PartRef a
+#endif
 
 
 -- Show the composability of transient web aplications
@@ -33,102 +51,29 @@ main =   simpleWebApp 8080 app
 
 
 app= do
-    content <- local . render $ textArea ("enter the content") <** wbutton () "send"
-    r <- atServer reduce  (+) . mapKeyB (\w -> (w, 1 :: Int))
-                              . distribute
-                              . V.fromList
-                              . words content
+    content <- local . render $do
+                    rawHtml $  (p "hello")
+                    (textArea (fs "enter the content") ! width (fs "80") ! height (fs "20")  )
+                            <*** inputSubmit "send" `fire` OnClick
 
-    local . render $ rawHtml $ H1 r
-demo= do
-   name <- local . render $ do
-       rawHtml $ do
-          hr
-          p "this snippet captures the essence of this demonstration"
-          p $ span "it's a blend of server and browser code in a "
-               >> (span $ b "composable") >> span " piece"
-
-          div ! id (fs "fibs") $ i "Fibonacci numbers should appear here"
-
-   local . render $ wlink () (p " stream fibonacci numbers")
-
-   -- stream fibonancci
-fibw= do
-   r <-  atServer $ do
-               let fibs= 0 : 1 : zipWith (+) fibs (tail fibs) :: [Int]  -- fibonacci numb. definition
-
-               r <- local  . threads 1 . choose $ take 10 fibs
+    r <- atServer $do
+               r<- reduce  (+)
+                    . mapKeyB (\w -> (w, 1 :: Int))
+                    $ getText  words "hello world"
                lliftIO $ print r
-               lliftIO $ threadDelay 1000000
                return r
+--               $ test
 
-   local . render . at (fs "#fibs") Append $ rawHtml $  (h2 r)
-
-
-
-demo2= do
-   name <- local . render $ do
-       rawHtml $ do
-          hr
-          br;br
-          p "In this example you enter your name and the server will salute you"
-          br
-
---       inputString (Just "Your name") `fire` OnKeyUp       -- send once a char is entered
-       inputString (Just "enter your name") `fire` OnKeyUp
-             <++ br                                        -- new line
-
-   r <- atServer $ lliftIO $ print (name ++ " calling") >> return ("Hi " ++ name)
-
-   local . render . rawHtml $ do
-            p " returned"
-            h2 r
-
-
+    local . render $ rawHtml $ h1 (r :: M.Map String Int)
 
 fs= toJSString
 
-
-
-
-counters= do
-   local . render . rawHtml $ do
-          hr
-          p "To demonstrate wormhole, teleport, widgets, interactive streaming"
-          p "and composability in a web application."
-          br
-          p "This is one of the most complicated interactions: how to control a stream in the server"
-          p "by means of a web interface without loosing composability."
-          br
-          p "in this example, events flow from the server to the browser (a counter) and back from"
-          p "the browser to the server (initiating and cancelling the counters)"
-
-   server <- local $ getSData <|> error "no server???"
-   counter server <|> counter server
-
-   where
-   counter server = wormhole server $ do
-         op <-  startOrCancel
-         teleport          -- translates the computation to the server
-         r <- local $ case op of
-                   "start"  ->  killChilds >> stream
-                   "cancel" ->  killChilds >> stop
-
-         teleport          -- back to the browser again
-         local $ render $ rawHtml $ h1 r
-
-   -- generates a sequence of numbers
-   stream= do
-     counter <- liftIO $ newIORef (0 :: Int)
-     waitEvents $ do
-          n <- atomicModifyIORef counter $ \r -> (r +1,r)
-          threadDelay 1000000
-          putStr "generating: " >> print n
-          return  n
-
-startOrCancel :: Cloud String
-startOrCancel= local $ render $   (inputSubmit "start"  `fire` OnClick)
-                              <|> (inputSubmit "cancel" `fire` OnClick)
-                              <++ br
-
-
+{-
+#ifndef ghcjs_HOST_OS
+test= loggedc $ do
+                 server <- local getSData
+                 runAt server $ local $ return $ M.fromList [("pepe",1)]
+#else
+test= local stop
+#endif
+-}

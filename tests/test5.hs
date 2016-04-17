@@ -3,6 +3,8 @@ module Main where
 import Transient.Move
 import Transient.Logged
 import Transient.Base
+import Transient.Internals
+import Transient.Internals((!>))
 import Transient.Indeterminism
 import Transient.EVars
 import Network
@@ -28,28 +30,44 @@ import Data.List((\\))
 
 -- to be executed with two or more nodes
 main = do
-     args <- getArgs
-     let hostname= read $ head args :: String
-         remotehost= read $ args !! 1
-         port= 2000
+--     args <- getArgs
+--     let hostname= read $ head args :: String
+--         remotehost= read $ args !! 1
+--         port= 2000
 --         numNodes = 2
 --         ports = [2000 .. 2000 + numNodes - 1]
 
-         nodes = (createNode "localhost" ports
-         node1= head nodes
-         node2= nodes !! 1
+--         nodes = (createNode "localhost" ports
+--         node1= head nodes
+--         node2= nodes !! 1
+     let node= createNode "localhost" 2000
+     runCloudIO $ do
+         listen node <|> return ()
 
-     runCloud' $ do
-       listen (createLocalNode port) <|> return ()
-       local $ option "fire" "fire"
-       r <-  (runAt node2 (return "hello "))
-                 <>  (runAt node2 (return "world"))
-       lliftIO $ print r
-       r <-  (runAt node2 (return "hello "))
+         local $ option "s" "start"
 
-       lliftIO $ print r
+         box <- local newMailBox  !> "NEWMAILBOX"
 
-       Log _ _ full <- onAll $ getSData
-       lliftIO $ print $ reverse full
+         (runAt node $ local $ do
+                  getMailBox (box !> ("get1",box)) >>= \x -> do
+                  cleanMailBox box  ""   !> "clean1"
+                  liftIO $ putStrLn x
+                  return SDone)
+          <|> (runAt node $ local $ do
+                  getMailBox (box !> ("get1",box)) >>= \x -> do
+                  cleanMailBox box  ""   !> "clean2"
+                  liftIO $ putStrLn x
+                  return SDone)
+          <|> (runAt node $ local $ do
+                  getMailBox (box !> ("get1",box)) >>= \x -> do
+                  cleanMailBox box  ""   !> "clean3"
+                  liftIO $ putStrLn x
+                  return SDone)
+
+          <|> (runAt node $ local $ putMailBox (box !> ("put",box)) "hello" >> return (SMore ""))
+
+
 
 runNodes nodes= foldl (<|>) empty (map listen nodes) <|> return()
+
+

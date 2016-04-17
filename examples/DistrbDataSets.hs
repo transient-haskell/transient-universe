@@ -17,18 +17,20 @@ import qualified Data.Vector as V
 -- Calculates separately the frequency of words in a text using
 -- Distributed Data Sets (DDS's)  similar to spark Resilient Data Sets
 main= do
-     let numNodes = 2
+     let numNodes = 1
          ports = [2000 .. 2000 + numNodes - 1]
          createLocalNode = createNode "localhost"
          nodes = map createLocalNode ports
 
-     r <- runCloudIO $ do
+     runCloudIO $ do
               runNodes nodes
+              local $ option "s" "start"
               r <- reduce  (+) . mapKeyB (\w -> (w, 1 :: Int))
-                               $ getText  words content'
-              local $ exit r
+                               $ getText  words content
+              lliftIO $ print r
+--              local $ exit r
 
-     print $  M.toList  r
+--     print $  M.toList  r
 
 
 runNodes nodes= do

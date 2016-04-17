@@ -24,7 +24,7 @@ beamTo, forkTo, streamFrom, callTo, runAt,
 
 clustered, mclustered,
 
-newMailBox, putMailBox,getMailBox, sendNodeEvent, waitNodeEvents,
+newMailBox, putMailBox,getMailBox, sendNodeEvent, waitNodeEvents, cleanNodeEvents,cleanMailBox,
 
 #ifndef ghcjs_HOST_OS
 setBuffSize, getBuffSize,
@@ -41,7 +41,7 @@ addNodes, shuffleNodes,
 
 ) where
 import Transient.Base
-import Transient.Internals(killChildren,getCont,runCont,EventF(..),LogElem(..),Log(..),onNothing,RemoteStatus(..),getCont)
+import Transient.Internals(killChildren,getCont,runCont,EventF(..),LogElem(..),Log(..),onNothing,RemoteStatus(..),getCont,StateIO)
 import Transient.Logged
 import Transient.EVars
 import Transient.Stream.Resource
@@ -284,7 +284,7 @@ wsRead :: Loggable a => WebSocket  -> TransIO  a
 wsRead ws= do
   dat <- react (hsonmessage ws) (return ())
   case JM.getData dat of
-    JM.StringData str  ->  return (read $ JS.unpack str)  --  !!> ("WSREAD RECEIVED " ++ show str)
+    JM.StringData str  ->  return (read $ JS.unpack str)   -- !> str
     JM.BlobData   blob -> error " blob"
     JM.ArrayBufferData arrBuffer -> error "arrBuffer"
 
@@ -440,25 +440,6 @@ wormhole node (Cloud comp) = local $ Transient $ do
                   runTrans $ comp  <** setSData oldconn
 
   where
-  -- for state recovery after a remote call.
-  -- it has problems so now the state variables are forwarded to the remote host and returned back
---  initState= do
---       rstat <-liftIO $ newIORef undefined
---       setSData rstat
---       stat <- gets mfData
---       liftIO $ writeIORef rstat stat
---
---  putState = do
---        rstate <- getSData <|> error "rstate not defined" :: TransIO (IORef(M.Map TypeRep SData))
---        st <- get
---        log@(Log _ _ l) <- getSData :: TransIO Log
---        con <-getSData :: TransIO Connection
---        mfDat <- liftIO $ readIORef rstate -- !!> show ("LOG BEFORe",  l)
---        put st {mfData= mfDat}
---        setSData log
---        setSData con
---
-
 
 
   check fulLog mlog =
@@ -467,9 +448,9 @@ wormhole node (Cloud comp) = local $ Transient $ do
                  finish $ Just e
                  empty
 
-             SDone -> finish Nothing >> empty
-             SMore log -> setSData (Log True log $ reverse log ++  fulLog ) -- !!> ("SETTING "++ show log)
-             SLast log -> setSData (Log True log $ reverse log ++  fulLog ) -- !!> ("SETTING "++ show log)
+             SDone -> finish Nothing >> empty                                           -- !> "SDONE in wormhole"
+             SMore log -> setSData (Log True log $ reverse log ++  fulLog )             -- !!> ("SETTING "++ show log)
+             SLast log -> finish Nothing >> setSData (Log True log $ reverse log ++  fulLog ) -- !!> ("SETTING "++ show log)
 
 #ifndef ghcjs_HOST_OS
 type JSString= String
@@ -479,7 +460,8 @@ pack= id
 
 newtype Prefix= Prefix JSString deriving(Read,Show)
 newtype IdLine= IdLine JSString deriving(Read,Show)
-data Repeat= Repeat | RepeatHandled JSString deriving (Eq, Read, Show)
+data Repeat= Repeat | RepH JSString deriving (Eq, Read, Show)
+
 
 addPrefix= Transient $ do
    r <- liftIO $ replicateM  5 (randomRIO ('a','z'))
@@ -496,23 +478,14 @@ teleport :: Cloud ()
 teleport =  local $ Transient $ do
     conn@Connection{calling= calling,offset= n} <- getData
          `onNothing` error "teleport: No connection defined: use wormhole"
-    when  (saveVars conn) $ runTrans (do
-        let copyCounter= do
-               r <- local $ gets mfSequence
-               onAll $ modify $ \s -> s{mfSequence= r}
-        runCloud $ do
-            copyData $ Prefix ""
-            copyData $ IdLine ""
-            copyData $ Repeat
-            copyCounter)  >> return ()
-
+    saveVars
 
 
     Log rec log fulLog <- getData `onNothing` return (Log False [][])    -- !!> "TELEPORT"
     if not rec
       then  do
          liftIO $ msend conn $ SMore $ drop n $ reverse fulLog
-                --  !!> ("TELEPORT LOCAL sending" ++ show (drop n $ reverse fulLog))
+                 -- !> ("TELEPORT LOCAL sending" ++ show (drop n $ reverse fulLog))
                  -- will be read by wormhole remote
          when (not calling) $ setData WasRemote  -- !> "setting WasRemote in telport"
 --         getState   !!> "GETSTAT"
@@ -522,13 +495,45 @@ teleport =  local $ Transient $ do
                return (Just ())                             -- !!> "TELEPORT remote"
 
    where
-#ifndef ghcjs_HOST_OS
-   saveVars Connection{connData= Just(Node2Node{})}= False
-#endif
-   saveVars _ = True
+   saveVars= runTrans . runCloud  $ do
+     sav <- local $ ((getSData :: TransIO (Maybe Repeat)) >> return True) <|> return False
+     when sav  $ do
+       let copyCounter= do
+               r <- local $ gets mfSequence
+               onAll $ modify $ \s -> s{mfSequence= r}
+
+       copyData $ Prefix ""
+       copyData $ IdLine ""
+       copyData  Repeat
+       copyCounter
+
+-- #ifndef ghcjs_HOST_OS
+--   saveVars Connection{connData= Just(Node2Node{})}= do
+--    sav <- getData :: StateIO (Maybe Repeat)
+--    if  (isJust sav) then  saveVars' else return () !> "NO SAVEVARS"
+-- #endif
+--   saveVars _=  saveVars'
+
+--saveVars'=do
+--    runTrans $ do
+--        let copyCounter= do
+--               r <- local $ gets mfSequence
+--               onAll $ modify $ \s -> s{mfSequence= r}
+--        runCloud $ do
+--            copyData $ Prefix ""
+--            copyData $ IdLine ""
+--            copyData  Repeat
+--            copyCounter
+--    return ()
+
+-- #ifndef ghcjs_HOST_OS
+--   saveVars Connection{connData= Just(Node2Node{})}= False
+-- #endif
+--   saveVars _ = True
+--   saveVars = getData :: StateIO (Maybe Repeat)
 
 -- | copy session data variable from the local to the remote node.
--- The parameter is the default value if there is none set in the local node.
+-- The parameter is the default value, if there is none set in the local node.
 -- Then the default value is also set in the local node.
 copyData def = do
   r <- local getSData <|> return def
@@ -728,25 +733,59 @@ data Connection= Connection{myNode :: ()
                            ,offset  :: Int}
                   deriving Typeable
 
--- | Updates the mailbox of another node. It means that the data is transported trough the network
--- The call does not end until the mailbox entry is porcessed in the remote node.
+
 -- Mailboxes are node-wide, for all processes that share the same connection data, that is, are under the
 -- same `listen`  or `connect`
 -- while EVars scope are visible for the process where they are initialized and their children.
--- Internally a mailbox is a well known EVar stored by `listen` in the `Connection` state.
-sendRemoteNodeEvent :: Loggable a => Node -> a -> Cloud ()
-sendRemoteNodeEvent node dat= runAt node $ local $ sendNodeEvent dat
-
+-- Internally the mailbox is in a well known EVar stored by `listen` in the `Connection` state.
 newMailBox :: MonadIO m => m String
 newMailBox= liftIO $ replicateM  10 (randomRIO ('a','z'))
 
 putMailBox :: Typeable a => String -> a -> TransIO ()
-putMailBox name dat= sendNodeEvent (name, dat)
+putMailBox name dat= sendNodeEvent (name, Just dat)
 
 getMailBox :: Typeable a => String -> TransIO a
-getMailBox name= do
-     (nam, dat) <- waitNodeEvents
-     if nam /= name then empty else  return dat
+getMailBox name= Transient $ do
+--     (nam, dat) <- waitNodeEvents
+--     liftIO  $ print (nam,name)
+--     if nam /= name then empty else  return dat
+
+     Connection{comEvent=(EVar id rn ref1)} <- getData `onNothing` error "waitNodeEvents: accessing network events out of listen"
+     runTrans  $ do
+         liftIO $ atomically $ readTVar rn >>= \n -> writeTVar rn $ n +1
+         r <- parallel $ atomically $ do
+                    d <-  readTChan ref1     -- !> "READEVAR"
+                    case d of
+                        SDone -> return SDone
+                        SMore x ->  case fromDynamic x of
+                              Nothing -> retry
+                              Just (nam, Nothing) -> do
+                                readTVar rn >>= \n -> writeTVar rn $ n -1
+                                return SDone
+                              Just (nam,Just dat) ->
+                                if nam /= name then retry else return $ SMore dat
+--                        SLast x -> case fromDynamic x of
+--                              Nothing -> retry
+--                              Just (nam, Nothing) -> return SDone
+--                              Just (nam,Just dat) ->
+--                                if nam /= name !>(nam,name) then retry else return $ SLast dat
+                        SError e -> return $ SError e
+
+         case r of
+            SDone -> empty
+            SMore x -> return x
+            SLast x -> return x
+            SError e -> error $ show e
+
+-- | delete all subscriptions for that mailbox expecting this kind of data.
+cleanMailBox :: Typeable a =>  String ->  a -> TransIO ()
+cleanMailBox name witness= Transient $ do
+   Connection{comEvent=(EVar id rn ref1) }<- getData
+          `onNothing` error "sendNodeEvent: accessing network events out of listen"
+   runTrans $ liftIO $ atomically $ do
+--        readTVar rn >>= \n -> writeTVar rn $ n -1
+        writeTChan  ref1 $ SMore $ toDyn ( name,Nothing `asTypeOf` Just witness)
+
 
 -- | updates the local mailbox.
 sendNodeEvent :: Typeable a => a -> TransIO ()
@@ -766,11 +805,13 @@ waitNodeEvents = Transient $  do
                      d <-  readEVar comEvent
                      case fromDynamic d of
                       Nothing -> empty
-                      Just x -> do
-                         writeEVar comEvent $ toDyn ()
-                         return x
+                      Just x ->  return x
 
+cleanNodeEvents=Transient $  do
+       Connection{comEvent=comEvent} <- getData `onNothing` error "waitNodeEvents: accessing network events out of listen"
+       runTrans  $ cleanEVar comEvent
 
+--cleanMailBox mbox=
 
 defConnection :: Int -> Connection
 
@@ -803,7 +844,7 @@ readHandler h= do
 
     let [(v,left)]= readsPrec 0 line
 
-    return  v         --  !>  line
+    return  v          -- !> (" RECEIVED",  v)
 
   `catch` (\(e::SomeException) -> return $ SError   e)
 --   where
@@ -874,7 +915,7 @@ listen  (node@(Node _  (PortNumber port) _ _)) = onAll $ do
 --   mlog <- mread conn
 
    (method,uri, headers) <- receiveHTTPHead h
---   liftIO $ print ("RECEIVED ---------->",method,uri, headers)
+
    mlog <- case method of
      "LOG" ->
           do
@@ -904,7 +945,7 @@ listen  (node@(Node _  (PortNumber port) _ _)) = onAll $ do
                  liftIO $ killChildren . fromJust $ parent c
                  empty
 
-             SDone ->  empty -- liftIO (hClose h) >> stop
+             SDone ->  empty   -- liftIO (hClose h) >> stop
              SMore log -> setSData $ Log True log (reverse log)
              SLast log -> setSData $ Log True log (reverse log)
 --   liftIO $ print "END LISTEN"
