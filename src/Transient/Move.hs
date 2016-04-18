@@ -18,7 +18,7 @@ module Transient.Move(
 Cloud(..),runCloudIO, runCloudIO',local,onAll, loggedc, lliftIO,
 listen, Transient.Move.connect,
 
-wormhole, teleport, copyData,
+wormhole, teleport, teleportMany, copyData,
 
 beamTo, forkTo, streamFrom, callTo, runAt,
 
@@ -450,7 +450,7 @@ wormhole node (Cloud comp) = local $ Transient $ do
 
              SDone -> finish Nothing >> empty                                           -- !> "SDONE in wormhole"
              SMore log -> setSData (Log True log $ reverse log ++  fulLog )             -- !!> ("SETTING "++ show log)
-             SLast log -> finish Nothing >> setSData (Log True log $ reverse log ++  fulLog ) -- !!> ("SETTING "++ show log)
+             SLast log -> setSData (Log True log $ reverse log ++  fulLog ) -- !!> ("SETTING "++ show log)
 
 #ifndef ghcjs_HOST_OS
 type JSString= String
@@ -469,13 +469,16 @@ addPrefix= Transient $ do
    setSData $ Prefix $ pack  r
    return $ Just ()
 
+teleport :: Cloud ()
+teleport= teleportg SLast
 
-
+teleportMany :: Cloud()
+teleportMany= teleportg SMore
 
 -- | teleport is a new primitive that translates computations back and forth
 -- reusing an already opened connection.
-teleport :: Cloud ()
-teleport =  local $ Transient $ do
+--teleportg ::  (a -> StreamData a) -> Cloud ()
+teleportg fstr=  local $ Transient $ do
     conn@Connection{calling= calling,offset= n} <- getData
          `onNothing` error "teleport: No connection defined: use wormhole"
     saveVars
@@ -484,7 +487,7 @@ teleport =  local $ Transient $ do
     Log rec log fulLog <- getData `onNothing` return (Log False [][])    -- !!> "TELEPORT"
     if not rec
       then  do
-         liftIO $ msend conn $ SMore $ drop n $ reverse fulLog
+         liftIO $ msend conn $ fstr $ drop n $ reverse fulLog
                  -- !> ("TELEPORT LOCAL sending" ++ show (drop n $ reverse fulLog))
                  -- will be read by wormhole remote
          when (not calling) $ setData WasRemote  -- !> "setting WasRemote in telport"

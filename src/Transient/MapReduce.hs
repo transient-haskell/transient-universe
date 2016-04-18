@@ -9,7 +9,7 @@ getUrl, getFile,textUrl, textFile,
 mapKeyB, mapKeyU, reduce,eval,
 PartRef) where
 import Transient.Base
-import Transient.Internals(onNothing,(!>))
+import Transient.Internals(onNothing)
 import Transient.Move hiding (pack)
 import Transient.Logged
 import Transient.Indeterminism
@@ -193,12 +193,12 @@ reduce red  (dds@(DDS mx))= loggedc $ do
 --       shuffle ::( Hashable k, Distributable vector a) =>M.Map k (vector a) -> Cloud ()
        shuffle mpairs=do
            let destinations= groupByDestiny mpairs  -- ::  M.Map Int (k, vector a)
-           parallelize foldAndSend $ M.assocs destinations          !> M.assocs destinations
+           parallelize foldAndSend $ M.assocs destinations         -- !> M.assocs destinations
            where
 --           foldAndSend :: (Hashable k, Distributable vector a)=> (Int,[(k,vector a)]) -> Cloud ()
            foldAndSend (i,kvs)= do
                     let folded= map (\(k,vs) -> (k,foldl1 red vs))  kvs
-                    (runAt  (nodes !! i) $ local $ putMailBox box $ Reduce folded)  !> ("send",i,folded)
+                    (runAt  (nodes !! i) $ local $ putMailBox box $ Reduce folded)  -- !> ("send",i,folded)
 
             --  agrupa segun nodo de destino:
 
@@ -214,7 +214,7 @@ reduce red  (dds@(DDS mx))= loggedc $ do
               hash1 k= abs $ hash k `rem` length nodes
 
 
-       sendEnd =  clustered . local $ putMailBox box (EndReduce `asTypeOf` paramOf dds) !> "SENDEND"
+       sendEnd =  clustered . local $ putMailBox box (EndReduce `asTypeOf` paramOf dds) -- !> "SENDEND"
 
 
 
@@ -232,7 +232,9 @@ reduce red  (dds@(DDS mx))= loggedc $ do
              EndReduce -> do
                 n <- liftIO $ modifyMVar numberSent $ \r -> return (r+1, r+1)
                 if n == lengthNodes
-                 then liftIO $ readMVar reduceResults                        !> "Received END reduce"
+                 then do
+                    cleanMailBox box (EndReduce `asTypeOf` paramOf dds)
+                    liftIO $ readMVar reduceResults                       -- !> "Received END reduce"
 
                  else stop
 
@@ -245,7 +247,7 @@ reduce red  (dds@(DDS mx))= loggedc $ do
                                       return $ M.insert k (case maccum of
                                         Just accum ->  red input accum
                                         Nothing    ->  input) map
-                mapM addIt  (kvs `asTypeOf` paramOf' dds)                    !> ("Received Reduce",kvs)
+                mapM addIt  (kvs `asTypeOf` paramOf' dds)                    -- !> ("Received Reduce",kvs)
                 stop
 
 
@@ -277,7 +279,7 @@ getPartitionData (Ref node path save)  = do
                                    $ getDBRef
                                    $ keyp path save)
                               `onNothing` error ("not found DDS data: "++ keyp path save)
-    return xs  -- !> "getPartitionData"
+    return xs                                                                              -- !> "getPartitionData"
 
 -- en caso de fallo de Node, se lanza un clustered en busca del path
 --   si solo uno lo tiene, se copia a otro

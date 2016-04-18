@@ -3,6 +3,7 @@ module Main where
 import Transient.Move
 import Transient.Logged
 import Transient.Base
+import Transient.Stream.Resource
 import Transient.Internals
 import Transient.Internals((!>))
 import Transient.Indeterminism
@@ -43,28 +44,32 @@ main = do
      let node= createNode "localhost" 2000
      runCloudIO $ do
          listen node <|> return ()
-
          local $ option "s" "start"
 
-         box <- local newMailBox  !> "NEWMAILBOX"
+         r <- runAt node $ local $ choose[1..3::Int]
+         lliftIO $ print r
 
-         (runAt node $ local $ do
-                  getMailBox (box !> ("get1",box)) >>= \x -> do
-                  cleanMailBox box  ""   !> "clean1"
-                  liftIO $ putStrLn x
-                  return SDone)
-          <|> (runAt node $ local $ do
-                  getMailBox (box !> ("get1",box)) >>= \x -> do
-                  cleanMailBox box  ""   !> "clean2"
-                  liftIO $ putStrLn x
-                  return SDone)
-          <|> (runAt node $ local $ do
-                  getMailBox (box !> ("get1",box)) >>= \x -> do
-                  cleanMailBox box  ""   !> "clean3"
-                  liftIO $ putStrLn x
-                  return SDone)
 
-          <|> (runAt node $ local $ putMailBox (box !> ("put",box)) "hello" >> return (SMore ""))
+--
+--         box <- local newMailBox  !> "NEWMAILBOX"
+--
+--         (runAt node $ local $ do
+--                  getMailBox (box !> ("get1",box)) >>= \x -> do
+--                  cleanMailBox box  ""   !> "clean1"
+--                  liftIO $ putStrLn x
+--                  return SDone)
+--          <|> (runAt node $ local $ do
+--                  getMailBox (box !> ("get1",box)) >>= \x -> do
+--                  cleanMailBox box  ""   !> "clean2"
+--                  liftIO $ putStrLn x
+--                  return SDone)
+--          <|> (runAt node $ local $ do
+--                  getMailBox (box !> ("get1",box)) >>= \x -> do
+--                  cleanMailBox box  ""   !> "clean3"
+--                  liftIO $ putStrLn x
+--                  return SDone)
+--
+--          <|> (runAt node $ local $ putMailBox (box !> ("put",box)) "hello" >> return (SMore ""))
 
 
 

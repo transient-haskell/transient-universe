@@ -56,7 +56,7 @@ app= do
                     (textArea (fs "enter the content") ! width (fs "80") ! height (fs "20")  )
                             <*** inputSubmit "send" `fire` OnClick
 
-    r <- atServer $do
+    r <- atServer $ do
                r<- reduce  (+)
                     . mapKeyB (\w -> (w, 1 :: Int))
                     $ getText  words "hello world"
