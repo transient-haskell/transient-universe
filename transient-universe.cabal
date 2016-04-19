@@ -60,10 +60,10 @@ library
 
     exposed-modules:
             Transient.Move
+            Transient.MapReduce
     if ! impl(ghcjs >=0.1)
 
         exposed-modules:
-            Transient.MapReduce
             Transient.Move.Services
 
     default-language: Haskell2010

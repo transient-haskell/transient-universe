@@ -1,5 +1,5 @@
 {-# LANGUAGE  ExistentialQuantification, DeriveDataTypeable
-, FlexibleInstances, FlexibleContexts, UndecidableInstances, MultiParamTypeClasses #-}
+, FlexibleInstances, MultiParamTypeClasses, CPP #-}
 
 
 module Transient.MapReduce   (
@@ -8,6 +8,28 @@ DDS,Distributable(..),distribute, getText,
 getUrl, getFile,textUrl, textFile,
 mapKeyB, mapKeyU, reduce,eval,
 PartRef) where
+
+#ifdef ghcjs_HOST_OS
+import Transient.Base
+import Transient.Move hiding (pack)
+import Transient.Logged
+-- dummy Transient.MapReduce module,
+reduce _ _ = local stop :: Loggable a => Cloud a
+mapKeyB _ _= undefined
+mapKeyU _ _= undefined
+distribute _ = undefined
+getText _ _ = undefined
+textFile _ = undefined
+getUrl _ _ = undefined
+textUrl _ = undefined
+getFile _ _ = undefined
+eval _= local stop
+data DDS= DDS
+class Distributable
+data PartRef a=PartRef a
+
+#else
+
 import Transient.Base
 import Transient.Internals(onNothing)
 import Transient.Move hiding (pack)
@@ -426,13 +448,4 @@ streamDDS time io= DDS $ do
 
 
 
---data CloudArray a= Cloud [a]
---
---instance functor  CloudArray where
---   fmap f mx= do
---        xs <- mx
---        xss <- partition xs
---        rss <- clustered f xss
---        return $ concat rss
-
-
+#endif

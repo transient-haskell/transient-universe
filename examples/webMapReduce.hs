@@ -27,25 +27,17 @@ import Control.Monad.IO.Class
 import qualified Data.Vector as V
 import qualified Data.Map as M
 
-#ifndef ghcjs_HOST_OS
+
 import Transient.MapReduce
---message= lliftIO $ print "hello"  >> return (M.fromList [("hello",1::Int)])
-
-#else
-
--- dummy Transient.MapReduce module
-reduce _ _ = local stop :: Loggable a => Cloud a
-mapKeyB _ _= undefined
-distribute _ = undefined
-getText _ _ = undefined
-eval _= undefined
-data PartRef a=PartRef a
-#endif
 
 
--- Show the composability of transient web aplications
--- with three examples composed together, each one is a widget that execute
--- code in the browser AND the server.
+
+
+
+
+
+-- A Web node launch a map-reduce in all the server nodes, getting data from a
+-- web node from a textbox imput and render the returned results
 
 main =   simpleWebApp 8080 app
 
