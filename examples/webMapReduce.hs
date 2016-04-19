@@ -2,7 +2,7 @@
 
 module Main where
 
-import Prelude hiding (div,id,span)
+import Prelude hiding (div,id)
 import Transient.Internals ((!>))
 import Transient.Base
 
@@ -51,22 +51,36 @@ main =   simpleWebApp 8080 app
 
 
 app= do
-    content <- local . render $do
-                    rawHtml $  (p "hello")
-                    (textArea (fs "enter the content") ! width (fs "80") ! height (fs "20")  )
-                            <*** inputSubmit "send" `fire` OnClick
 
-    r <- atServer $ do
+  server <- onAll $ getSData
+  wormhole server $ do
+
+    content <-  local . render $
+                    textArea  (fs "") ! atr "placeholder" (fs "enter the content")
+                                      ! atr "rows" (fs "4")
+                                      ! atr "cols" (fs "80")
+                                 `fire` OnClick
+                     <++ br
+                     <*** inputSubmit "send" `fire` OnClick
+
+    r <- atRemote $ do
+               lliftIO $ print content
                r<- reduce  (+)
                     . mapKeyB (\w -> (w, 1 :: Int))
-                    $ getText  words "hello world"
+                    $ getText  words content
                lliftIO $ print r
-               return r
---               $ test
+               return (r :: M.Map String Int)
 
-    local . render $ rawHtml $ h1 (r :: M.Map String Int)
+
+    local . render $ rawHtml $do
+                 h1 "Results"
+                 mconcat[i "word " >> b w >> i " appears " >> b n >> i "times" >> br
+                        | (w,n) <- M.assocs r]
 
 fs= toJSString
+
+
+
 
 {-
 #ifndef ghcjs_HOST_OS

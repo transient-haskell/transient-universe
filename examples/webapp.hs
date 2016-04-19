@@ -67,7 +67,7 @@ demo2= do
           br
 
 --       inputString (Just "Your name") `fire` OnKeyUp       -- send once a char is entered
-       inputString (Just "enter your name") `fire` OnKeyUp
+       inputString Nothing ! atr "placeholder" (fs "enter your name") `fire` OnKeyUp
              <++ br                                        -- new line
 
    r <- atServer $ lliftIO $ print (name ++ " calling") >> return ("Hi " ++ name)

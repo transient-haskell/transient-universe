@@ -18,7 +18,7 @@ module Transient.Move(
 Cloud(..),runCloudIO, runCloudIO',local,onAll, loggedc, lliftIO,
 listen, Transient.Move.connect,
 
-wormhole, teleport, teleportMany, copyData,
+wormhole, teleport, teleportMany, teleportStream , copyData,
 
 beamTo, forkTo, streamFrom, callTo, runAt,
 
@@ -41,7 +41,7 @@ addNodes, shuffleNodes,
 
 ) where
 import Transient.Base
-import Transient.Internals(killChildren,getCont,runCont,EventF(..),LogElem(..),Log(..),onNothing,RemoteStatus(..),getCont,StateIO)
+import Transient.Internals(killChildren,getCont,runCont,EventF(..),LogElem(..),Log(..),onNothing,RemoteStatus(..),getCont,StateIO, (!>))
 import Transient.Logged
 import Transient.EVars
 import Transient.Stream.Resource
@@ -178,12 +178,12 @@ lliftIO= local . liftIO
 --remote :: Loggable a => TransIO a -> Cloud a
 --remote x= Cloud $ step' x $ \full x ->  Transient $ do
 --            let add= Wormhole: full
---            setSData $ Log False add add
+--            setData $ Log False add add
 --
 --            r <-  runTrans x
 --
 --            let add= WaitRemote: full
---            (setSData $ Log False add add)     -- !!> "AFTER STEP"
+--            (setData $ Log False add add)     -- !!> "AFTER STEP"
 --            return  r
 
 ---- | stop the current computation
@@ -197,7 +197,7 @@ beamTo node =  local $ do
   Log rec log _ <-  getSData <|> return (Log False [][])
   if rec
     then do
-      setSData WasRemote
+      setData WasRemote
       return ()
     else  do
       msendToNode node $ SLast $ reverse log   -- !> "BEAMTO" -- !> ("beamto send", log)
@@ -211,7 +211,7 @@ forkTo node= local $ do
   Log rec log _<- getSData <|> return (Log False [][])
   if rec
     then do
-      setSData WasRemote
+      setData WasRemote
       return ()
     else  do
       msendToNode node $ SLast $ reverse log
@@ -296,7 +296,7 @@ wsRead1 ws= do
   reactStream createHandler setHandler removeHandler iob= Transient $ do
         cont    <- getCont
         hand <- liftIO . createHandler $ \dat ->do
-              runStateT (setSData dat >> runCont cont) cont
+              runStateT (setData dat >> runCont cont) cont
               iob
         mEvData <- getSessionData
         case mEvData of
@@ -408,14 +408,14 @@ wormhole node (Cloud comp) = local $ Transient $ do
 
                 liftIO $ msend conn $ SLast $ reverse fulLog      -- !> ("wh sending ", show fulLog) -- SLast will disengage  the previous wormhole/listen
 
-                setSData $ conn{calling= True,offset= lengthLog}
+                setData $ conn{calling= True,offset= lengthLog}
                 (mread conn >>= check fulLog)  <|> return ()      -- !> "MREAD local"
 --                putState    !!> "PUTSTATE"
 #ifdef ghcjs_HOST_OS
                 addPrefix    -- for the DOM identifiers
 #endif
                 comp)
-               <** (when (isJust moldconn) $ setSData (fromJust moldconn))
+               <** (when (isJust moldconn) $ setData (fromJust moldconn))
                     -- <*** is not enough
 
             else do
@@ -432,12 +432,12 @@ wormhole node (Cloud comp) = local $ Transient $ do
                   check  fulLog mlog           -- !> ("MREAD remote",mlog)
                   comp
                  <** do
-                      setSData  oldconn
-                      setSData WasRemote       -- !> " set wasremote in wormhole"
+                      setData  oldconn
+                      setData WasRemote       -- !> " set wasremote in wormhole"
 
               else do   -- it is recovering a wormhole in the middle of a chain of nested wormholes
                   setData $ oldconn{calling= False,offset= lengthLog}
-                  runTrans $ comp  <** setSData oldconn
+                  runTrans $ comp  <** setData oldconn
 
   where
 
@@ -449,8 +449,8 @@ wormhole node (Cloud comp) = local $ Transient $ do
                  empty
 
              SDone -> finish Nothing >> empty                                           -- !> "SDONE in wormhole"
-             SMore log -> setSData (Log True log $ reverse log ++  fulLog )             -- !!> ("SETTING "++ show log)
-             SLast log -> setSData (Log True log $ reverse log ++  fulLog ) -- !!> ("SETTING "++ show log)
+             SMore log -> setData (Log True log $ reverse log ++  fulLog )             -- !!> ("SETTING "++ show log)
+             SLast log -> setData (Log True log $ reverse log ++  fulLog ) -- !!> ("SETTING "++ show log)
 
 #ifndef ghcjs_HOST_OS
 type JSString= String
@@ -466,18 +466,27 @@ data Repeat= Repeat | RepH JSString deriving (Eq, Read, Show)
 addPrefix= Transient $ do
    r <- liftIO $ replicateM  5 (randomRIO ('a','z'))
 
-   setSData $ Prefix $ pack  r
+   setData $ Prefix $ pack  r
    return $ Just ()
 
 teleport :: Cloud ()
-teleport= teleportg SLast
+teleport= teleportg SMore
 
 teleportMany :: Cloud()
 teleportMany= teleportg SMore
 
--- | teleport is a new primitive that translates computations back and forth
--- reusing an already opened connection.
---teleportg ::  (a -> StreamData a) -> Cloud ()
+teleportStream :: Cloud (StreamData a) -> Cloud a
+teleportStream  mx= do
+      sx <- mx
+      case sx of
+        SMore x   -> teleportg SMore >> return x
+        SLast x   -> teleportg SLast >> return x
+        SDone     -> teleportg SLast >> empty
+        SError e  -> teleportg SLast >> error (show e)
+
+-- | translates computations back and forth
+-- reusing a connection opened by `wormhole`
+-- teleportg ::  (a -> StreamData a) -> Cloud ()
 teleportg fstr=  local $ Transient $ do
     conn@Connection{calling= calling,offset= n} <- getData
          `onNothing` error "teleport: No connection defined: use wormhole"
@@ -491,21 +500,22 @@ teleportg fstr=  local $ Transient $ do
                  -- !> ("TELEPORT LOCAL sending" ++ show (drop n $ reverse fulLog))
                  -- will be read by wormhole remote
          when (not calling) $ setData WasRemote  -- !> "setting WasRemote in telport"
---         getState   !!> "GETSTAT"
-         return Nothing
-      else do  delSData WasRemote                -- !> "deleting wasremote in teleport"
 
-               return (Just ())                             -- !!> "TELEPORT remote"
+         return Nothing
+      else do
+         delData WasRemote                -- !> "deleting wasremote in teleport"
+         return (Just ())                             -- !!> "TELEPORT remote"
 
    where
    saveVars= runTrans . runCloud  $ do
-     sav <- local $ ((getSData :: TransIO (Maybe Repeat)) >> return True) <|> return False
+
+     sav <- local $ ((getSData :: TransIO ( Repeat)) >> return True) <|> return False
      when sav  $ do
        let copyCounter= do
                r <- local $ gets mfSequence
                onAll $ modify $ \s -> s{mfSequence= r}
 
-       copyData $ Prefix ""
+       copyData $ Prefix ""     !> "SAVE"
        copyData $ IdLine ""
        copyData  Repeat
        copyCounter
@@ -540,7 +550,7 @@ teleportg fstr=  local $ Transient $ do
 -- Then the default value is also set in the local node.
 copyData def = do
   r <- local getSData <|> return def
-  onAll $ setSData r
+  onAll $ setData r
   return r
 
 -- | `callTo` can stream data but can not inform the receiving process about the finalization. This call
@@ -563,10 +573,10 @@ streamFrom1 node remoteProc= logged $ Transient $ do
 
             r <- remoteProc                  -- !> "executing remoteProc" !> "CALLTO REMOTE" -- LOg="++ show fulLog
             n <- liftIO $ msend conn  r      -- !> "sent response"
-            setSData WasRemote
+            setData WasRemote
             stop
           <|> do
-            setSData WasRemote
+            setData WasRemote
             stop
 
          else  do
@@ -862,7 +872,7 @@ readHandler h= do
 --listen  (node@(Node _  port _ _)) = do
 --   addThreads 1
 --   setMyNode node
---   setSData $ Log False [] []
+--   setData $ Log False [] []
 --
 --   Connection node  _ bufSize events blocked <- getSData <|> return (defConnection 8192)
 --
@@ -876,7 +886,7 @@ readHandler h= do
 --                               return SDone)
 --
 --
---   setSData $ Connection node  (Just (Node2Node port h sock )) bufSize events blocked
+--   setData $ Connection node  (Just (Node2Node port h sock )) bufSize events blocked
 --
 --   liftIO $  hSetBuffering h LineBuffering -- !> "LISTEN in "++ show (h,host,port1)
 --
@@ -891,14 +901,14 @@ readHandler h= do
 --             stop
 --
 --         SDone -> liftIO (hClose h) >> stop
---         SMore log -> setSData $ Log True log (reverse log)
---         SLast log -> setSData $ Log True log (reverse log)
+--         SMore log -> setData $ Log True log (reverse log)
+--         SLast log -> setData $ Log True log (reverse log)
 
 listen ::  Node ->  Cloud ()
 listen  (node@(Node _  (PortNumber port) _ _)) = onAll $ do
    addThreads 1
    setMyNode node
-   setSData $ Log False [] []
+   setData $ Log False [] []
 
    Connection node  _ bufSize events blocked _ _ <- getSData <|> return (defConnection 8192)
 
@@ -914,7 +924,7 @@ listen  (node@(Node _  (PortNumber port) _ _)) = onAll $ do
    h <- liftIO $ NS.socketToHandle conn ReadWriteMode      -- !!> "NEW SOCKET CONNECTION"
 
 --   let conn= Connection node  (Just (Node2Node port h sock )) bufSize events blocked
---   setSData conn
+--   setData conn
 --   mlog <- mread conn
 
    (method,uri, headers) <- receiveHTTPHead h
@@ -922,12 +932,12 @@ listen  (node@(Node _  (PortNumber port) _ _)) = onAll $ do
    mlog <- case method of
      "LOG" ->
           do
-           setSData $ (Connection node  (Just (Node2Node (PortNumber port) h sock ))
+           setData $ (Connection node  (Just (Node2Node (PortNumber port) h sock ))
                          bufSize events blocked False 0  :: Connection)
            parallel $ readHandler  h       -- !!> "read Listen"  -- :: TransIO (StreamData [LogElem])
      _ -> do
            sconn <- httpMode (method,uri, headers) conn
-           setSData $ (Connection node  (Just (Node2Web sconn ))
+           setData $ (Connection node  (Just (Node2Web sconn ))
                          bufSize events blocked False 0 :: Connection)
 
            parallel $ do
@@ -949,8 +959,8 @@ listen  (node@(Node _  (PortNumber port) _ _)) = onAll $ do
                  empty
 
              SDone ->  empty   -- liftIO (hClose h) >> stop
-             SMore log -> setSData $ Log True log (reverse log)
-             SLast log -> setSData $ Log True log (reverse log)
+             SMore log -> setData $ Log True log (reverse log)
+             SLast log -> setData $ Log True log (reverse log)
 --   liftIO $ print "END LISTEN"
 
 
@@ -1235,7 +1245,7 @@ giveData h= do
 
 
 receiveHTTPHead h = do
-  setSData $ ParseContext (giveData h) ""
+  setData $ ParseContext (giveData h) ""
   (method, uri, vers) <- (,,) <$> getMethod <*> getUri <*> getVers
   headers <- many $ (,) <$> (mk <$> getParam) <*> getParamValue    -- !>  (method, uri, vers)
   return (method, uri, headers)                                    -- !>  (method, uri, headers)
@@ -1270,7 +1280,7 @@ receiveHTTPHead h = do
     if  str == mempty then do
           str3 <- liftIO  rh
 
-          setSData $ ParseContext rh str3                     -- !> str3
+          setData $ ParseContext rh str3                     -- !> str3
 
           if str3== mempty then empty   else  parse split
 
@@ -1278,7 +1288,7 @@ receiveHTTPHead h = do
 
           cont <- do
              let (ret,str3) = split str
-             setSData $ ParseContext rh str3
+             setData $ ParseContext rh str3
              if  str3 == mempty
                 then  return $ Left ret
                 else  return $ Right ret
