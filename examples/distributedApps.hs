@@ -1,4 +1,4 @@
-{-# LANGUAGE   CPP #-}
+{-# LANGUAGE   CPP,  OverloadedStrings #-}
 
 module Main where
 
@@ -15,8 +15,6 @@ import GHCJS.HPlay.View
 #else
    hiding (map, option,input)
 #endif
-
-
 
 
 import Transient.Move
@@ -39,6 +37,11 @@ import Control.Monad.IO.Class
 import qualified Data.Vector as V
 import System.IO
 import System.IO.Unsafe
+
+import Data.String
+
+default (String)
+
 
 -- A Web node launch a map-reduce computation in all the server nodes, getting data from a
 -- textbox and render the results returned
@@ -73,9 +76,9 @@ mapReduce= do
   wormhole server $ do
 
     content <-  local . render $
-                    textArea  (tj "") ! atr "placeholder" (tj "enter the content")
-                                      ! atr "rows" (tj "4")
-                                      ! atr "cols" (tj "80")
+                    textArea   "" ! atr "placeholder" "enter the content"
+                                      ! atr "rows" "4"
+                                      ! atr "cols"  "80"
 
                      <++ br
                      <*** inputSubmit "send" `fire` OnClick
@@ -93,21 +96,20 @@ mapReduce= do
                  mconcat[i "word " >> b w >> i " appears " >> b n >> i "times" >> br
                         | (w,n) <- M.assocs r]
 
-tj= toJSString
+
 
 
 
 chat= do
-
   server <- onAll $ getSData <|> error "server not set"
   wormhole server $ do
-    local . render . rawHtml $ div ! id (tj "chatbox") $ noHtml
+    local . render . rawHtml $ div ! id "chatbox" $ noHtml
     sendMessages <|> waitMessages
 
   where
   sendMessages= do
-      text <- local . render $ (inputString Nothing )
-                <*** inputSubmit "send"  `fire` OnClick
+      text <- local . render $ (inputString Nothing )  `fire` OnChange
+                <*** inputSubmit "send"
                 <++ br
       teleport      -- move it to the server
       clustered . local $ putMailBox "chat"  (text :: String)
@@ -115,7 +117,7 @@ chat= do
 
   waitMessages= do
     resp <- atRemote . local $ getMailBox "chat" :: Cloud String
-    local . render . at (tj "#chatbox") Prepend $ rawHtml $ p resp
+    local . render . at "#chatbox" Prepend $ rawHtml $ p resp
 
 
 

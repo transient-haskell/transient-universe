@@ -18,7 +18,7 @@ module Transient.Move(
 Cloud(..),runCloudIO, runCloudIO',local,onAll,lazy, loggedc, lliftIO,
 listen, Transient.Move.connect, connect',
 
-wormhole, teleport, teleportMany, teleportStream , copyData,
+wormhole, teleport, copyData,
 
 beamTo, forkTo, streamFrom, callTo, runAt,
 
@@ -220,7 +220,9 @@ forkTo node= local $ do
     else  do
       msendToNode node $ SLast $ reverse log
 
--- | executes an action in another node.
+-- | open a wormhole to another node and executes an action on it.
+-- currently by default it keep open the connection to receive additional requests
+-- and responses (streaming)
 callTo :: Loggable a => Node -> Cloud a -> Cloud a
 callTo node  remoteProc=
    wormhole node $ do
@@ -229,6 +231,13 @@ callTo node  remoteProc=
        teleport     -- !!> "TELEPORT from remote"
        return r
 
+-- |  withing an open `wormhole` it run the computation in the other node and return
+-- the result back  to the original node
+atRemote proc= do
+     teleport
+     r <- proc
+     teleport
+     return r
 
 -- | synonymous of `callTo`
 -- all the previous actions from `listen` to this statement must have been logged
@@ -473,6 +482,9 @@ addPrefix= Transient $ do
    setData $ Prefix $ pack  r
    return $ Just ()
 
+-- | translates computations back and forth between two nodes
+-- using a connection opened by `wormhole`.
+--
 teleport :: Cloud ()
 teleport= teleportg SMore
 
@@ -711,7 +723,6 @@ connectToWS  h (PortNumber p) =
 #endif
 #ifndef ghcjs_HOST_OS
 -- | A connectionless version of callTo for long running remote calls
--- myNode should be set with `setMyNode`
 callTo' :: (Show a, Read a,Typeable a) => Node -> Cloud a -> Cloud a
 callTo' node remoteProc=  do
     mynode <-  local getMyNode
