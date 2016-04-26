@@ -1,24 +1,9 @@
-FROM agocorona/herokughcjs
-RUN git clone https://github.com/agocorona/transient  transgit \
-    && cd transgit \
-    && git checkout ghcjs \
-    && cabal install
+FROM heroku/cedar
 
-RUN cd  transgit && cabal install --ghcjs
+RUN apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys 575159689BEFB442 \
+    && echo 'deb http://download.fpcomplete.com/debian jessie main'| tee /etc/apt/sources.list.d/fpco.list \
+    && apt-get update &&  apt-get install stack -y
 
-RUN git clone https://github.com/agocorona/ghcjs-perch \
-    && cd ghcjs-perch \
-    && cabal install \
-    && cabal install --ghcjs #
-
-RUN git clone https://github.com/agocorona/ghcjs-hplay  \
-    && cd ghcjs-hplay \
-    && cabal install --ghcjs \
-    && cabal install
-
-ADD . /transient/
-
-CMD cd /transient && chmod 777 buildrun.sh && ./buildrun.sh
-
+# RUN  stack setup --allow-different-user --compiler ghcjs-0.1.0.20150924_ghc-7.10.2
 
 

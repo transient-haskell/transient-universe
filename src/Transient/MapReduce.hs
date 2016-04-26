@@ -2,12 +2,13 @@
 , FlexibleInstances, MultiParamTypeClasses, CPP #-}
 
 
-module Transient.MapReduce   (
-
-DDS,Distributable(..),distribute, getText,
-getUrl, getFile,textUrl, textFile,
-mapKeyB, mapKeyU, reduce,eval,
-PartRef) where
+module Transient.MapReduce
+--  (
+--Distributable(..),distribute, getText,
+--getUrl, getFile,textUrl, textFile,
+--mapKeyB, mapKeyU, reduce,eval,
+--PartRef)
+ where
 
 #ifdef ghcjs_HOST_OS
 import Transient.Base
@@ -162,15 +163,15 @@ mapKey :: (Distributable vector a,Distributable vector b, Loggable k,Ord k)
      => (a -> (k,b))
      -> DDS  (vector a)
      -> DDS (M.Map k (vector b))
-mapKey f (DDS mx)= DDS $  do
+mapKey f (DDS mx)= DDS $ loggedc $  do
         refs <-  mx
         process refs
 
   where
 --  process ::  Partition a -> Cloud [Partition b]
   process  (ref@(Ref node path sav))= runAt node $ local $ do
-              xs <- getPartitionData ref   -- !> "CMAP"
-              generateRef node $ map1 f xs
+              xs <- getPartitionData ref    -- !> ("CMAP", ref,node)
+              (generateRef  $ map1 f xs)
 
 
 
@@ -197,83 +198,78 @@ reduce ::  (Hashable k,Ord k, Distributable vector a, Loggable k,Loggable a)
              => (a -> a -> a) -> DDS (M.Map k (vector a)) ->Cloud (M.Map k a)
 
 reduce red  (dds@(DDS mx))= loggedc $ do
-
    box <- local newMailBox
-   nodes <- onAll getNodes
+   nodes <- local getNodes
 
    let lengthNodes = length nodes
-       shuffler=   do
-          ref <- mx
-          local $ do
-              mpairs <-  getPartitionData ref   -- !> "GETPARTITIONDATA" ::(M.Map k (vector a))
-
-
-              runCloud ( shuffle mpairs) <*** runCloud sendEnd
+       shuffler= do
+          ref@(Ref node path sav) <- mx
+          runAt node  $ local $ runCloud  ( foldAndSend ref)  -- <***    runCloud sendEnd
 
           stop
 
---       shuffle ::( Hashable k, Distributable vector a) =>M.Map k (vector a) -> Cloud ()
-       shuffle mpairs=do
-           let destinations= groupByDestiny mpairs  -- ::  M.Map Int (k, vector a)
-           parallelize foldAndSend $ M.assocs destinations         -- !> M.assocs destinations
-           where
---           foldAndSend :: (Hashable k, Distributable vector a)=> (Int,[(k,vector a)]) -> Cloud ()
-           foldAndSend (i,kvs)= do
-                    let folded= map (\(k,vs) -> (k,foldl1 red vs))  kvs
-                    (runAt  (nodes !! i) $ local $ putMailBox box $ Reduce folded)  -- !> ("send",i,folded)
-
-            --  agrupa segun nodo de destino:
-
---           groupByDestiny :: (Hashable k, Distributable vector a)
---                          => M.Map k (vector a)
---                          -> M.Map Int [(k ,vector a)]
-           groupByDestiny map= M.foldlWithKey' f M.empty  map
+--     groupByDestiny :: (Hashable k, Distributable vector a)  => M.Map k (vector a) -> M.Map Int [(k ,vector a)]
+       groupByDestiny  map =  M.foldlWithKey' f M.empty  map
               where
 --              f ::  M.Map Int [(k ,vector a)] -> k -> vector a -> M.Map Int [(k ,vector a)]
-              f map k vs= M.insertWith f1 (hash1 k) [(k,vs)] map
-
-              f1  v1 v2= v1 <> v2
+              f map k vs= M.insertWith (<>) (hash1 k) [(k,vs)] map
               hash1 k= abs $ hash k `rem` length nodes
 
 
-       sendEnd =  clustered . local $ putMailBox box (EndReduce `asTypeOf` paramOf dds) -- !> "SENDEND"
+--           foldAndSend :: (Hashable k, Distributable vector a)=> (Int,[(k,vector a)]) -> Cloud ()
+       foldAndSend ref=  do
+                 nsent <-  onAll $ liftIO $ newMVar 0
+                 pairs <- onAll $ getPartitionData1 ref
+                            <|>  return (error $ "DDS computed out of his node:"++ show ref)
+                 let mpairs = groupByDestiny pairs
+                 length <- local . return $ M.size mpairs
+                 (i,folded) <-loggedc $ parallelize foldthem $  M.assocs  mpairs
+
+                 runAt (nodes !! i) $  (local $ putMailBox box $ Reduce folded)
+                 n <- lliftIO $ modifyMVar nsent $ \r -> return (r+1, r+1)
+                 when (n == length) sendEnd     -- !> "SENDEND"
+
+              where
+              foldthem (i,kvs)= local . async $ return  (i,map (\(k,vs) -> (k,foldl1 red vs)) kvs)
 
 
+       sendEnd =  clustered . local $ putMailBox box (EndReduce `asTypeOf` paramOf dds)
+                      -- !> "SENDEND"
 
        reducer=   mclustered reduce1    -- a reduce1 process in each node, get the results and mappend them
 
 --     reduce :: (Ord k)  => Cloud (M.Map k v)
 
        reduce1 = local $ do
+           reduceResults <- liftIO $ newMVar M.empty
+           numberSent    <- liftIO $ newMVar 0
 
-           reduceResults <- liftIO $ newMVar M.empty  -- !>  "CREATE MVAR for results"
-           numberSent <- liftIO $ newMVar 0
            minput <- getMailBox box  -- get the chunk once it arrives to the mailbox
 
-           case minput  of -- !> ("received",minput) of
+           case minput  of
              EndReduce -> do
-                n <- liftIO $ modifyMVar numberSent $ \r -> return (r+1, r+1)
+                n <- liftIO $ modifyMVar numberSent $ \r -> return (r+1, r+1)  -- !> "Received END reduce"
                 if n == lengthNodes
                  then do
                     cleanMailBox box (EndReduce `asTypeOf` paramOf dds)
-                    liftIO $ readMVar reduceResults                       -- !> "Received END reduce"
+                    liftIO $ readMVar reduceResults
 
                  else stop
 
              Reduce kvs ->  do
                 let addIt (k,inp) = do
-                            let input= inp `asTypeOf` atype dds
-                            liftIO $ modifyMVar_ reduceResults
-                                   $ \map -> do
-                                      let maccum =  M.lookup k map
-                                      return $ M.insert k (case maccum of
-                                        Just accum ->  red input accum
-                                        Nothing    ->  input) map
-                mapM addIt  (kvs `asTypeOf` paramOf' dds)                    -- !> ("Received Reduce",kvs)
+                        let input= inp `asTypeOf` atype dds
+                        liftIO $ modifyMVar_ reduceResults
+                               $ \map -> do
+                                  let maccum =  M.lookup k map
+                                  return $ M.insert k (case maccum of
+                                    Just accum ->  red input accum
+                                    Nothing    ->  input) map
+                mapM addIt  (kvs `asTypeOf` paramOf' dds)        --  !> ("Received Reduce",kvs)
                 stop
 
 
-   reducer <|> shuffler
+   reducer  <|> shuffler
    where
      atype ::DDS(M.Map k (vector a)) ->  a
      atype = undefined -- type level
@@ -295,13 +291,35 @@ parallelize f xs =  foldr (<|>) empty $ map f xs
 
 
 getPartitionData :: Loggable a => PartRef a   -> TransIO  a
-getPartitionData (Ref node path save)  = do
-    (Part _ _ _ xs) <- (liftIO $ atomically
-                                   $ readDBRef
-                                   $ getDBRef
-                                   $ keyp path save)
-                              `onNothing` error ("not found DDS data: "++ keyp path save)
-    return xs                                                                              -- !> "getPartitionData"
+getPartitionData (Ref node path save)  = Transient $ do
+    mp <- (liftIO $ atomically
+                       $ readDBRef
+                       $ getDBRef
+                       $ keyp path save)
+                  `onNothing` error ("not found DDS data: "++ keyp path save)
+    case mp of
+       (Part _ _ _ xs) -> return $ Just xs
+
+getPartitionData1 :: Loggable a => PartRef a   -> TransIO  a
+getPartitionData1 (Ref node path save)  = Transient $ do
+    mp <- liftIO $ atomically
+                  $ readDBRef
+                  $ getDBRef
+                  $ keyp path save
+--                  `onNothing` error ("not found DDS data: "++ keyp path save)
+    case mp of
+      Just (Part _ _ _ xs) -> return $ Just xs
+      Nothing -> return Nothing
+
+getPartitionData2 :: Loggable a => PartRef a   -> IO  a
+getPartitionData2 (Ref node path save)  =  do
+    mp <- ( atomically
+                       $ readDBRef
+                       $ getDBRef
+                       $ keyp path save)
+                  `onNothing` error ("not found DDS data: "++ keyp path save)
+    case mp of
+       (Part _ _ _ xs) -> return  xs
 
 -- en caso de fallo de Node, se lanza un clustered en busca del path
 --   si solo uno lo tiene, se copia a otro
@@ -352,26 +370,28 @@ distribute'' xss nodes =
    parallelize  move $ zip nodes xss   -- !> show xss
    where
    move (node, xs)=  runAt node $ local $ do
-                        par <- generateRef node xs
+                        par <- generateRef  xs
                         return  par
+          --   !> ("move", node,xs)
 
 -- | input data from a text that must be static and shared by all the nodes
 getText  :: (Loggable a, Distributable vector a) => (String -> [a]) -> String -> DDS (vector a)
-getText part str= DDS $ do
+getText part str= DDS $ loggedc $ do
    nodes' <- onAll getNodes                                        -- !> "DISTRIBUTE"
    let nodes = filter (not . isWebNode) nodes'
    let lnodes = length nodes
 
-   parallelize  (process lnodes)  $ zip nodes [0..lnodes]   -- !> show xss
+   parallelize  (process lnodes)  $ zip nodes [0..lnodes]
    where
    isWebNode (WebNode _)= True
    isWebNode _= False
-   process lnodes (node,i)= runAt node $ local $   do
-                        let xs = part str
-                            size= case length xs `div` lnodes of 0 ->1 ; n -> n
-                            xss= Transient.MapReduce.fromList $ take size $ drop  (i *  size) xs
-                        par <- generateRef node xss
-                        return  par
+   process lnodes (node,i)= do
+      runAt node $ local $ do
+            let xs = part str
+                size= case length xs `div` lnodes of 0 ->1 ; n -> n
+                xss= Transient.MapReduce.fromList $ take size $ drop  (i *  size) xs
+            par <- generateRef  xss
+            (return  par)
 
 -- | get the worlds of an URL
 textUrl :: String -> DDS (DV.Vector Text.Text)
@@ -391,7 +411,7 @@ getUrl partitioner url= DDS $ do
                         let xs = partitioner body
                             size= case length xs `div` lnodes of 0 ->1 ; n -> n
                             xss= Transient.MapReduce.fromList $ take size $ drop  (i *  size) xs
-                        generateRef node xss
+                        generateRef  xss
 
 
 -- | get the words of a file
@@ -411,17 +431,20 @@ getFile partitioner file= DDS $ do
                         content <- liftIO $ readFile file
                         let xs = partitioner content
                             size= case length xs `div` lnodes of 0 ->1 ; n -> n
-                            xss=Transient.MapReduce.fromList $ take size $ drop  (i *  size) xs                                -- !> size
-                        generateRef node   xss
+                            xss=Transient.MapReduce.fromList $ take size $ drop  (i *  size) xs  -- !> size
+                        generateRef    xss
 
 
 
-generateRef :: Loggable a => Node -> a -> TransIO (PartRef a)
-generateRef node x=  liftIO $ do
+generateRef :: Loggable a =>  a -> TransIO (PartRef a)
+generateRef  x=  do
+    node <- getMyNode
+    liftIO $ do
        temp <- getTempName
        let reg=  Part node temp True  x
        atomically $ newDBRef reg
-       return $ getRef reg
+
+       (return $ getRef reg)     -- !> ("generateRef",reg,node)
 
 getRef (Part n t s x)= Ref n t s
 

@@ -71,15 +71,3 @@ app= do
 
 fs= toJSString
 
-
-
-
-{-
-#ifndef ghcjs_HOST_OS
-test= loggedc $ do
-                 server <- local getSData
-                 runAt server $ local $ return $ M.fromList [("pepe",1)]
-#else
-test= local stop
-#endif
--}

@@ -15,8 +15,8 @@
     ,GeneralizedNewtypeDeriving #-}
 module Transient.Move(
 
-Cloud(..),runCloudIO, runCloudIO',local,onAll, loggedc, lliftIO,
-listen, Transient.Move.connect,
+Cloud(..),runCloudIO, runCloudIO',local,onAll,lazy, loggedc, lliftIO,
+listen, Transient.Move.connect, connect',
 
 wormhole, teleport, teleportMany, teleportStream , copyData,
 
@@ -93,7 +93,7 @@ import Control.Concurrent.MVar
 
 import Data.Monoid
 import qualified Data.Map as M
-import Data.List (nub,(\\),find)
+import Data.List (nub,(\\),find, insert)
 import Data.IORef
 
 
@@ -167,6 +167,10 @@ runCloudIO' (Cloud mx)= keep' mx
 
 onAll ::  TransIO a -> Cloud a
 onAll =  Cloud
+
+lazy :: TransIO a -> Cloud a
+lazy mx= onAll $ getCont >>= \st -> Transient $
+        return $ unsafePerformIO $  runStateT (runTrans mx) st >>=  return .fst
 
 -- log the result a cloud computation. like `loogged`, This eliminated all the log produced by computations
 -- inside and substitute it for that single result when the computation is completed.
@@ -406,10 +410,10 @@ wormhole node (Cloud comp) = local $ Transient $ do
                 conn <- mconnect node                             -- !> ("connecting node ", show node)
                                                                   -- !> "wormhole local"
 
-                liftIO $ msend conn $ SLast $ reverse fulLog      -- !> ("wh sending ", show fulLog) -- SLast will disengage  the previous wormhole/listen
+                liftIO $ msend conn $ SLast $ reverse fulLog       -- !> ("wh sending ", show fulLog) -- SLast will disengage  the previous wormhole/listen
 
                 setData $ conn{calling= True,offset= lengthLog}
-                (mread conn >>= check fulLog)  <|> return ()      -- !> "MREAD local"
+                (mread conn >>= check fulLog)  <|> return ()       -- !> "MREAD local"
 --                putState    !!> "PUTSTATE"
 #ifdef ghcjs_HOST_OS
                 addPrefix    -- for the DOM identifiers
@@ -710,7 +714,7 @@ connectToWS  h (PortNumber p) =
 -- myNode should be set with `setMyNode`
 callTo' :: (Show a, Read a,Typeable a) => Node -> Cloud a -> Cloud a
 callTo' node remoteProc=  do
-    mynode <-  getMyNode
+    mynode <-  local getMyNode
     beamTo node
     r <-  remoteProc
     beamTo mynode
@@ -771,12 +775,12 @@ getMailBox name= Transient $ do
                     case d of
                         SDone -> return SDone
                         SMore x ->  case fromDynamic x of
-                              Nothing -> retry
+                              Nothing -> return $ SMore Nothing
                               Just (nam, Nothing) -> do
                                 readTVar rn >>= \n -> writeTVar rn $ n -1
                                 return SDone
                               Just (nam,Just dat) ->
-                                if nam /= name then retry else return $ SMore dat
+                                return $ SMore $ if nam /= name then Nothing else  Just dat
 --                        SLast x -> case fromDynamic x of
 --                              Nothing -> retry
 --                              Just (nam, Nothing) -> return SDone
@@ -786,8 +790,9 @@ getMailBox name= Transient $ do
 
          case r of
             SDone -> empty
-            SMore x -> return x
-            SLast x -> return x
+            SMore Nothing -> empty
+            SMore (Just x) -> return x
+            SLast (Just x) -> return x
             SError e -> error $ show e
 
 -- | delete all subscriptions for that mailbox expecting this kind of data.
@@ -857,7 +862,7 @@ readHandler h= do
 
     let [(v,left)]= readsPrec 0 line
 
-    return  v          -- !> (" RECEIVED",  v)
+    return  v               -- !> (" RECEIVED",  v)
 
   `catch` (\(e::SomeException) -> return $ SError   e)
 --   where
@@ -1036,8 +1041,8 @@ deriving instance Ord PortID
 errorMyNode f= error $ f ++ ": Node not set. Use setMynode before listen"
 
 #ifdef ghcjs_HOST_OS
-getMyNode :: Cloud ()
-getMyNode= return ()
+getMyNode :: TransIO Node
+getMyNode= return createWebNode
 
 setMyNode :: Node -> TransIO ()
 setMyNode node= do
@@ -1047,8 +1052,8 @@ setMyNode node= do
         setData conn
 #else
 
-getMyNode :: Cloud Node
-getMyNode = local $ do
+getMyNode :: TransIO Node
+getMyNode =  do
     Connection{myNode=rnode} <- getSData <|> errorMyNode "getMyNode"
     MyNode node <- liftIO $ atomically $ readTVar rnode  -- `onNothing` errorMyNode "getMyNode"
     return node
@@ -1076,7 +1081,7 @@ addNodes   nodes=  do
 #endif
   liftIO . atomically $ do
     prevnodes <- readTVar nodeList
-    writeTVar nodeList $ nub $ nodes ++ prevnodes
+    writeTVar nodeList $ nub $ prevnodes  ++ nodes
 
 #ifndef ghcjs_HOST_OS
 verifyNode (WebNode pool)= do
@@ -1155,17 +1160,21 @@ mclustered proc= loggedc $ do
 connect ::  Node ->  Node -> Cloud ()
 connect  node  remotenode =   do
     listen node <|> return () -- listen1 node remotenode
+    connect' node remotenode
+
+-- | synchronize the list of nodes with a remote node and all the nodes connected to it
+connect' node remotenode= do
     local $ liftIO $ putStrLn $ "connecting to: "++ show remotenode
     newnode <- local $ return node -- must pass my node to the remote node or else it will use his own
 
     nodes <- runAt remotenode $  do
                    mclustered $ onAll $ addNodes [newnode]
                    onAll $ do
-                      liftIO $ putStrLn $ "Connected node: " ++ show node
+                      liftIO $ putStrLn $ "New Connected node: " ++ show node
                       getNodes
 
-    onAll $ liftIO $ putStrLn $ "Connected to nodes: " ++ show nodes
-    onAll $ addNodes nodes
+    local $ liftIO $ putStrLn $ "Connected to nodes: " ++ show nodes
+    local $ addNodes nodes
 
 
 --------------------------------------------
