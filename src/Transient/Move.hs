@@ -20,7 +20,7 @@ listen, Transient.Move.connect, connect',
 
 wormhole, teleport, copyData,
 
-beamTo, forkTo, streamFrom, callTo, runAt,
+beamTo, forkTo, streamFrom, callTo, runAt, atRemote,
 
 clustered, mclustered,
 
@@ -574,87 +574,6 @@ copyData def = do
 streamFrom :: Loggable a => Node -> Cloud (StreamData a) -> Cloud  (StreamData a)
 streamFrom = callTo
 
-
-
-{- All the previous actions from `listen` to this statement must have been logged
-streamFrom1 :: Loggable a => Node -> TransIO (StreamData a) -> TransIO  a -- (StreamData a)
-streamFrom1 node remoteProc= logged $ Transient $ do
-      liftIO $ print "STREAMFROM"
-      Log rec log fulLog <- getData `onNothing` return (Log False [][])
-      if rec
-         then
-          runTrans $ do
-            liftIO $ print "callTo Remote executing"
-            conn <- getSData  <|> error "callTo receive: no connection data"
-
-            r <- remoteProc                  -- !> "executing remoteProc" !> "CALLTO REMOTE" -- LOg="++ show fulLog
-            n <- liftIO $ msend conn  r      -- !> "sent response"
-            setData WasRemote
-            stop
-          <|> do
-            setData WasRemote
-            stop
-
-         else  do
-            cont <- getCont
-            runTrans $ process (return()) (mconnect node) (mcloseRelease cont node) $ \conn _ -> do
-
-                liftIO $ msend conn  (SLast $ reverse fulLog)  !> "CALLTO LOCAL" -- send "++ show  log
-
-                let log'= Wait:tail log
-                setData $ Log rec log' log'
-                liftIO $ print "mread in callTO"
-                mread conn
-
-      where
-      mcloseRelease :: EventF -> Node -> Connection -> Maybe SomeException -> IO ()
-      mcloseRelease cont node conn reason=
-         case reason of
-            Nothing -> release node conn
-            Just r -> do
-              forkIO $ mclose conn
-
-              killChildren cont
--}
-   {-
-         runTrans $ do
-            conn <-  mconnect  node !> "mconnect"
-            onFinish $ \_ -> do
-                   liftIO $ print "MCLOSE"
-                   liftIO $ mclose conn
-                   c <- getCont
-                   liftIO $ killChildren c -- liftIO $ myThreadId >>= \th -> liftIO (print th) >> killThread th
-
-
-            liftIO $ msend conn  (SLast $ reverse fulLog)  !> "CALLTO LOCAL" -- send "++ show  log
-
-            let log'= Wait:tail log
-            setData $ Log rec log' log'
-            liftIO $ print "mread in callTO"
-            r <- mread conn
---              adjustRecThreads h
-
-            case r of
-                 SError e -> do
-                     liftIO $ do
-                        release node conn
-                        print e
-                     stop
-                 SDone ->  release node conn >> empty
-                 smore@(SMore x) -> return smore
-                 other ->  release node conn >> return other
-
--}
---      where
---      adjustRecThreads h= do
---          b <- liftIO $ hWaitForInput  h 1
---          addThreads' $ if b then 1 else 0
---          liftIO $ putStrLn $ "REC "++ show (case b of True -> "INC" ; _ -> "DEC")999999*
---
---      adjustSenderThreads n
---         | n > 2 = addThreads' (-1)  >> liftIO (putStrLn ("SEND DEC"))
---         | n==0 = addThreads' 1  >> liftIO (putStrLn ("SEND INC"))
---         | otherwise= return () >> liftIO(myThreadId >>= \th -> (putStrLn ("SEND "++ show th)))
 
 release (Node h p rpool _) hand= liftIO $ do
 --    print "RELEASED"

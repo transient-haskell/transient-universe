@@ -10,11 +10,12 @@ extra-deps: [transient-0.2]
 resolver: lts-3.1
 
 
-compiler: ghcjs-0.2.0.20160414_ghc-7.10.3
+compiler: ghcjs-0.1.0.20150924_ghc-7.10.2
 compiler-check: newer-minor
 setup-info:
   ghcjs:
     source:
-      ghcjs-0.2.0.20160414_ghc-7.10.3:
-        url: https://s3.amazonaws.com/ghcjs/ghcjs-0.2.0.20160414_ghc-7.10.3.tar.gz
-        sha1: 6d6f307503be9e94e0c96ef1308c7cf224d06be3
+      ghcjs-0.2.0.20160414_ghc-7.10.2:
+        url: https://s3.amazonaws.com/ghcjs/ghcjs-0.2.0.20160414_ghc-7.10.2.tar.gz
+        sha1: f0a7243e781e27ebfe601eebaf5c57422007c142
+
