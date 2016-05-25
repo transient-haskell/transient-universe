@@ -51,9 +51,9 @@ app= do
                     textArea  (fs "") ! atr "placeholder" (fs "enter the content")
                                       ! atr "rows" (fs "4")
                                       ! atr "cols" (fs "80")
-                                 `fire` OnClick
+                                 `fire` OnChange
                      <++ br
-                     <*** inputSubmit "send" `fire` OnClick
+                     <*** inputSubmit "send"  -- `fire` OnClick
 
     r <- atRemote $ do
                lliftIO $ print content

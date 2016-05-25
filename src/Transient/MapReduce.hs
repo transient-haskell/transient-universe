@@ -1,5 +1,5 @@
 {-# LANGUAGE  ExistentialQuantification, DeriveDataTypeable
-, FlexibleInstances, MultiParamTypeClasses, CPP #-}
+, FlexibleInstances, MultiParamTypeClasses, OverloadedStrings, CPP #-}
 
 
 module Transient.MapReduce
@@ -25,6 +25,7 @@ getUrl _ _ = undefined
 textUrl _ = undefined
 getFile _ _ = undefined
 eval _= local stop
+
 data DDS= DDS
 class Distributable
 data PartRef a=PartRef a
@@ -32,7 +33,7 @@ data PartRef a=PartRef a
 #else
 
 import Transient.Base
-import Transient.Internals(onNothing)
+--import Transient.Internals((!>))
 import Transient.Move hiding (pack)
 import Transient.Logged
 import Transient.Indeterminism
@@ -51,7 +52,7 @@ import Control.Exception
 import Control.Concurrent
 --import Data.Time.Clock
 import Network.HTTP
-import Data.TCache hiding (onNothing)
+import Data.TCache
 import Data.TCache.Defs
 
 import Data.ByteString.Lazy.Char8 (pack,unpack)
@@ -76,7 +77,8 @@ instance Indexable (Partition a) where
     key (Part _ string b _)= keyp string b
 
 
-keyp s True= "PartP@"++s
+
+keyp s True= "PartP@"++s :: String
 keyp s False="PartT@"++s
 
 instance Loggable a => IResource (Partition a) where
@@ -198,13 +200,15 @@ reduce ::  (Hashable k,Ord k, Distributable vector a, Loggable k,Loggable a)
              => (a -> a -> a) -> DDS (M.Map k (vector a)) ->Cloud (M.Map k a)
 
 reduce red  (dds@(DDS mx))= loggedc $ do
-   box <- local newMailBox
+
+   box <- lliftIO $ return . Text.pack =<<  replicateM  10 (randomRIO ('a','z'))
    nodes <- local getNodes
 
    let lengthNodes = length nodes
-       shuffler= do
+       shuffler nodes = do
           ref@(Ref node path sav) <- mx
-          runAt node  $ local $ runCloud  ( foldAndSend ref)  -- <***    runCloud sendEnd
+          return ()                                 -- !> ref
+          runAt node  $ local $ runCloud  ( foldAndSend  nodes ref)  -- <***    runCloud sendEnd
 
           stop
 
@@ -217,26 +221,30 @@ reduce red  (dds@(DDS mx))= loggedc $ do
 
 
 --           foldAndSend :: (Hashable k, Distributable vector a)=> (Int,[(k,vector a)]) -> Cloud ()
-       foldAndSend ref=  do
+       foldAndSend nodes ref=  do
                  nsent <-  onAll $ liftIO $ newMVar 0
                  pairs <- onAll $ getPartitionData1 ref
                             <|>  return (error $ "DDS computed out of his node:"++ show ref)
                  let mpairs = groupByDestiny pairs
                  length <- local . return $ M.size mpairs
-                 (i,folded) <-loggedc $ parallelize foldthem $  M.assocs  mpairs
+                 (i,folded) <- loggedc $ parallelize foldthem $  M.assocs  mpairs
 
-                 runAt (nodes !! i) $  (local $ putMailBox box $ Reduce folded)
+                 runAt (nodes !! i) $  (local $ putMailbox box $ Reduce folded)
+                                                             -- !> ("SEND REDUCE DATA",folded)
                  n <- lliftIO $ modifyMVar nsent $ \r -> return (r+1, r+1)
-                 when (n == length) sendEnd     -- !> "SENDEND"
+                 when (n == length) $ sendEnd  nodes
 
               where
               foldthem (i,kvs)= local . async $ return  (i,map (\(k,vs) -> (k,foldl1 red vs)) kvs)
 
 
-       sendEnd =  clustered . local $ putMailBox box (EndReduce `asTypeOf` paramOf dds)
-                      -- !> "SENDEND"
+       sendEnd nodes = onNodes nodes . local $  putMailbox box (EndReduce `asTypeOf` paramOf dds)
 
-       reducer=   mclustered reduce1    -- a reduce1 process in each node, get the results and mappend them
+       onNodes  nodes f= foldr (<|>) empty $ map (\n -> runAt n f ) nodes
+
+       sumNodes nodes f= foldr (<>) mempty $ map (\n -> runAt n f) nodes
+
+       reducer nodes=   sumNodes nodes reduce1    -- a reduce1 process in each node, get the results and mappend them
 
 --     reduce :: (Ord k)  => Cloud (M.Map k v)
 
@@ -244,15 +252,18 @@ reduce red  (dds@(DDS mx))= loggedc $ do
            reduceResults <- liftIO $ newMVar M.empty
            numberSent    <- liftIO $ newMVar 0
 
-           minput <- getMailBox box  -- get the chunk once it arrives to the mailbox
+           minput <- getMailbox box  -- get the chunk once it arrives to the mailbox
 
            case minput  of
+
              EndReduce -> do
-                n <- liftIO $ modifyMVar numberSent $ \r -> return (r+1, r+1)  -- !> "Received END reduce"
-                if n == lengthNodes
+
+                n <- liftIO $ modifyMVar numberSent $ \r -> return (r+1, r+1)
+                if n == lengthNodes                  -- !>("END REDUCE RECEIVED",n, lengthNodes)
                  then do
-                    cleanMailBox box (EndReduce `asTypeOf` paramOf dds)
-                    liftIO $ readMVar reduceResults
+                    cleanMailbox box (EndReduce `asTypeOf` paramOf dds)
+                    r <- liftIO $ readMVar reduceResults
+                    return r                         -- !> ("reduceresult",r)
 
                  else stop
 
@@ -265,11 +276,11 @@ reduce red  (dds@(DDS mx))= loggedc $ do
                                   return $ M.insert k (case maccum of
                                     Just accum ->  red input accum
                                     Nothing    ->  input) map
-                mapM addIt  (kvs `asTypeOf` paramOf' dds)        --  !> ("Received Reduce",kvs)
+                mapM addIt  (kvs `asTypeOf` paramOf' dds)         -- !> ("Received Reduce",kvs)
                 stop
 
 
-   reducer  <|> shuffler
+   reducer  nodes  <|>  shuffler nodes
    where
      atype ::DDS(M.Map k (vector a)) ->  a
      atype = undefined -- type level
@@ -374,22 +385,24 @@ distribute'' xss nodes =
                         return  par
           --   !> ("move", node,xs)
 
--- | input data from a text that must be static and shared by all the nodes
+-- | input data from a text that must be static and shared by all the nodes.
+-- The function parameter partition the text in words
 getText  :: (Loggable a, Distributable vector a) => (String -> [a]) -> String -> DDS (vector a)
 getText part str= DDS $ loggedc $ do
-   nodes' <- onAll getNodes                                        -- !> "DISTRIBUTE"
+   nodes' <- local getNodes                                        -- !> "DISTRIBUTE"
    let nodes = filter (not . isWebNode) nodes'
    let lnodes = length nodes
 
-   parallelize  (process lnodes)  $ zip nodes [0..lnodes]
+   parallelize  (process lnodes)  $ zip nodes [0..lnodes-1]
    where
-   isWebNode (WebNode _)= True
+   isWebNode Node {nodeHost="webnode"}= True
    isWebNode _= False
    process lnodes (node,i)= do
       runAt node $ local $ do
             let xs = part str
                 size= case length xs `div` lnodes of 0 ->1 ; n -> n
-                xss= Transient.MapReduce.fromList $ take size $ drop  (i *  size) xs
+                xss= Transient.MapReduce.fromList $
+                       if i== lnodes-1 then drop (i* size) xs else  take size $ drop  (i *  size) xs
             par <- generateRef  xss
             (return  par)
 
@@ -397,13 +410,14 @@ getText part str= DDS $ loggedc $ do
 textUrl :: String -> DDS (DV.Vector Text.Text)
 textUrl= getUrl  (map Text.pack . words)
 
--- | generate a DDS from the content of a URL
+-- | generate a DDS from the content of a URL.
+-- The first parameter is a function that divide the text in words
 getUrl :: (Loggable a, Distributable vector a) => (String -> [a]) -> String -> DDS (vector a)
 getUrl partitioner url= DDS $ do
-   nodes <- onAll getNodes                                        -- !> "DISTRIBUTE"
+   nodes <- local getNodes                                        -- !> "DISTRIBUTE"
    let lnodes = length nodes
 
-   parallelize  (process lnodes)  $ zip nodes [0..lnodes]    -- !> show xss
+   parallelize  (process lnodes)  $ zip nodes [0..lnodes-1]    -- !> show xss
    where
    process lnodes (node,i)=  runAt node $ local $ do
                         r <- liftIO . simpleHTTP $ getRequest url
@@ -425,7 +439,7 @@ getFile partitioner file= DDS $ do
    nodes <- local getNodes                                        -- !> "DISTRIBUTE"
    let lnodes = length nodes
 
-   parallelize  (process lnodes) $ zip nodes [0..lnodes]    -- !> show xss
+   parallelize  (process lnodes) $ zip nodes [0..lnodes-1]    -- !> show xss
    where
    process lnodes (node, i)=  runAt node $ local $ do
                         content <- liftIO $ readFile file
@@ -443,7 +457,7 @@ generateRef  x=  do
        temp <- getTempName
        let reg=  Part node temp True  x
        atomically $ newDBRef reg
-
+--       syncCache
        (return $ getRef reg)     -- !> ("generateRef",reg,node)
 
 getRef (Part n t s x)= Ref n t s

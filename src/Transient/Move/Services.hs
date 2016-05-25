@@ -28,18 +28,20 @@ import GHC.Conc
 import System.Directory
 import Control.Monad
 import Data.List
-import Data.TCache hiding(onNothing)
+import Data.Maybe
+--import Data.TCache hiding(onNothing)
 
 -- for the example
 import System.Environment
 
 startServices :: Cloud ()
-startServices= do
-  node <- getMyNode
-  onAll . liftIO $ print node
-  mapM_ start $ services node
+startServices= local $ do
+  node <-  getMyNode
+  liftIO $ print node
+  servs <-  liftIO $ readMVar $ services node
+  mapM_ start  servs
   where
-  start (package,program,port)= onAll . liftIO $ do
+  start (package,program,port)= liftIO $ do
           let prog= pathExe (name package) program port
           liftIO $ print prog
           createProcess $ shell prog
@@ -66,14 +68,9 @@ install package program port =  do
 
      let service= (package, program,  port)
 
-     Connection{myNode= rnode} <- onAll getSData <|> error "Mynode not set: use setMyNode"
-     local $ liftIO $ do
-       atomically $ do
-        MyNode( Node h p c servs) <- readTVar rnode
-
-        writeTVar rnode $ MyNode $ Node h p c $ service:servs
-       liftIO syncCache
-     node <-  getMyNode
+     Connection{myNode=Node{services=rservs}} <- onAll getSData <|> error "Mynode not set: use setMyNode"
+     lliftIO $ modifyMVar_  rservs $ \servs ->  return$ service:servs
+     node <-  onAll getMyNode
      notifyService node service
      return()
 
@@ -99,8 +96,9 @@ rfreePort = unsafePerformIO $ newMVar  3000
 freePort :: MonadIO m => m Int
 freePort= liftIO $ modifyMVar rfreePort $ \ n -> return (n+1,n)
 
-initService node package program= loggedc $
-    case   find  (\(package', program',_) -> package==package' && program== program') $ services node of
+initService node package program= loggedc $ do
+    services <- onAll $ liftIO $ readMVar $ services node
+    case   find  (\(package', program',_) -> package==package' && program== program') $ services  of
        Just (_,_,port) -> return port
        Nothing -> do
             beamTo node
@@ -116,11 +114,11 @@ initService node package program= loggedc $
 
 notifyService :: Node -> Service -> Cloud ()
 notifyService node service=  clustered $ do
-     onAll . liftIO $ atomically $ do
-        nodes <- readTVar nodeList
-        let ([nod], nodes')= span (== node) nodes
-        let nod' = nod{services=service:services nod}
-        writeTVar nodeList $ nod' : nodes'
+     onAll . liftIO $  do
+        nodes <- atomically $ readTVar nodeList
+
+        let nod = fromMaybe (error $ "node not found :" ++  show node) $ find (== node) nodes :: Node
+        modifyMVar_ (services nod) $ \servs -> return $ service:servs
         return ()
 
      local $ sendNodeEvent (node,service)
