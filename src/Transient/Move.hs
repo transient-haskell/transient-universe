@@ -41,7 +41,7 @@ addNodes, shuffleNodes,
 
 ) where
 import Transient.Base
-import Transient.Internals((!>),killChildren,getCont,runCont,EventF(..),LogElem(..),Log(..)
+import Transient.Internals(killChildren,getCont,runCont,EventF(..),LogElem(..),Log(..)
        ,onNothing,RemoteStatus(..),getCont,StateIO,readsPrec')
 import Transient.Logged
 import Transient.EVars
@@ -119,7 +119,7 @@ data Node= Node{ nodeHost   :: HostName
                , nodePort   :: Int
                , connection :: MVar Pool
                , nodeServices   :: MVar [Service]
-               , closures   :: MVar (M.Map Int ([LogElem], EventF))}
+               }
 
          deriving (Typeable)
 
@@ -243,42 +243,42 @@ runAt :: Loggable a => Node -> Cloud a -> Cloud a
 runAt= callTo
 
 
-msend :: Loggable a => Connection -> StreamData a -> IO ()
+msend :: Loggable a => Connection -> StreamData a -> TransIO ()
 
 
 #ifndef ghcjs_HOST_OS
 
-msend (Connection _(Just (Node2Node _ h sock)) _ _ blocked _ _ _) r= liftIO $ do
-  withMVar blocked $
+msend (Connection _(Just (Node2Node _ h sock)) _ _ blocked _ _ ) r= do
+  r <- liftIO $ do
+       withMVar blocked $
              const $ do
---                 when  (not unused) $ do
---                     hPutStrLn   h "LOG a b"
---                     hPutStrLn   h ""
                  hPutStrLn h (show r)
-                 hFlush h                         -- !>  ("msend: ", r)
---             `catch` (\(e::SomeException) -> sClose sock)
+                 hFlush h  >> return Nothing `catch` (\(e::SomeException) -> return $ Just e)
+  case r of
+      Nothing -> return()
+      juste -> finish juste
 
 
-msend (Connection _(Just (Node2Web sconn)) _ _ blocked _ _ _) r=
+msend (Connection _(Just (Node2Web sconn)) _ _ blocked _  _) r=liftIO $
   withMVar blocked $ const $ NS.sendTextData sconn $ BS.pack (show r)
 
 
 #else
 
-msend (Connection _ (Just (Web2Node sconn)) _ _ blocked _ _ _) r=
+msend (Connection _ (Just (Web2Node sconn)) _ _ blocked _  _) r= liftIO $
   withMVar blocked $ const $ JavaScript.Web.WebSocket.send  (JS.pack $ show r) sconn   -- !!> "MSEND SOCKET"
 
 
 
 #endif
 
-msend (Connection _ Nothing _ _  _ _ _ _) _= error "msend out of wormhole context"
+msend (Connection _ Nothing _ _  _ _ _ ) _= error "msend out of wormhole context"
 
 mread :: Loggable a => Connection -> TransIO (StreamData a)
 #ifdef ghcjs_HOST_OS
 
 
-mread (Connection _ (Just (Web2Node sconn)) _ _ _ _ _ _)=  wsRead sconn
+mread (Connection _ (Just (Web2Node sconn)) _ _ _ _  _)=  wsRead sconn
 
 
 
@@ -379,10 +379,10 @@ foreign import javascript safe
 
 
 #else
-mread (Connection _(Just (Node2Node _ h _)) _ _ blocked _ _ _) =  parallel $ readHandler  h
+mread (Connection _(Just (Node2Node _ h _)) _ _ blocked _ _ ) =  parallel $ readHandler  h
 
 
-mread (Connection node  (Just (Node2Web sconn )) bufSize events blocked _ _ _)=
+mread (Connection node  (Just (Node2Web sconn )) bufSize events blocked _ _)=
         parallel $ do
             s <- NS.receiveData sconn
             return . read' $  BS.unpack s         -- !>  ("WS MREAD RECEIVED ---->", s)
@@ -428,7 +428,7 @@ wormhole node (Cloud comp) = local $ Transient $ do
 
              runTrans $  comp
                      <** do
-                          when (null log) $ setData WasRemote    !> "NULLLOG"
+--                          when (null log) $ setData WasRemote    !> "NULLLOG"
                           when (isJust mclosure) . setData $ fromJust mclosure
 
 
@@ -463,7 +463,7 @@ teleport =  do
      if not rec   -- !> ("rec,loc fulLog=",rec,log,fulLog)
                   -- if is not recovering in the remote node then it is active
       then  do
-         conn@Connection{myNode= mynode,calling= calling} <- getData
+         conn@Connection{closures= closures,calling= calling} <- getData
              `onNothing` error "teleport: No connection defined: use wormhole"
 
          --read this Closure
@@ -474,11 +474,11 @@ teleport =  do
          let closLocal = sum $ map (\x-> case x of Wait-> 1000; _ -> 1) fulLog
 --         closLocal  <-   liftIO $ randomRIO (0,1000000)
 
-         liftIO $ modifyMVar_ (closures mynode) $ \map -> return $ M.insert closLocal (fulLog,cont) map
+         liftIO $ modifyMVar_ closures $ \map -> return $ M.insert closLocal (fulLog,cont) map
 
          let tosend= reverse $ if closRemote==0 then fulLog else  log -- drop offset  $ reverse fulLog  !> ("fulLog", fulLog)
 
-         liftIO $ msend conn $ SMore (closRemote,closLocal, tosend )
+         runTrans $ msend conn $ SMore (closRemote,closLocal, tosend )
                                               --    !> ("teleport sending",(closRemote,closLocal,offset, tosend ))
                                               --    !> "--------->------>---------->"
 
@@ -536,28 +536,28 @@ mclose :: Connection -> IO ()
 #ifndef ghcjs_HOST_OS
 
 mclose (Connection _
-   (Just (Node2Node _ h sock )) _ _ _ _ _ _)= hClose h
+   (Just (Node2Node _ h sock )) _ _ _ _ _)= hClose h
 
 mclose (Connection node
    (Just (Node2Web sconn ))
-   bufSize events blocked _ _ _)=
+   bufSize events blocked _  _)=
     NS.sendClose sconn ("closemsg" :: ByteString)
 
 #else
 
-mclose (Connection _ (Just (Web2Node sconn)) _ _ blocked _ _ _)=
+mclose (Connection _ (Just (Web2Node sconn)) _ _ blocked _ _)=
     JavaScript.Web.WebSocket.close Nothing Nothing sconn
 
 #endif
 
 mconnect :: Node -> TransIO  Connection
-mconnect  node@(Node _ _ _ _ _)=  do
+mconnect  node@(Node _ _ _ _ )=  do
   nodes <- getNodes
 
   let fnode =  filter (==node) nodes
   case fnode of
    [] -> addNodes [node] >> mconnect node
-   [Node host port  pool _ _] -> do
+   [Node host port  pool _] -> do
 --    Log _ _ full <- getSData <|> error "mconnect log error"
 
     plist <- liftIO $ readMVar pool
@@ -567,6 +567,7 @@ mconnect  node@(Node _ _ _ _ _)=  do
                   return  handle                        -- !>   "REUSED!"
 
       _ -> do
+        liftIO $ putStr "******CONNECTING NODE: " >> print node
         my <- getMyNode
 --        liftIO  $ putStr "OPENING CONNECTION WITH :" >> print port
         Connection{comEvent= ev} <- getSData <|> error "connect: listen not set for this node"
@@ -591,8 +592,13 @@ mconnect  node@(Node _ _ _ _ _)=  do
 #endif
         liftIO $ modifyMVar_ pool $  \plist -> return $ conn:plist
 
-        putMailbox "connections" conn
+        putMailbox "connections" (conn,node)
+
         delData $ Closure undefined
+
+
+
+
         return  conn
 
   where u= undefined
@@ -653,8 +659,8 @@ data Connection= Connection{myNode :: Node
                            ,comEvent :: IORef (M.Map T.Text (EVar Dynamic))
                            ,blocked :: Blocked
                            ,calling :: Bool
-                           ,unused  :: Bool
-                           ,unused2  :: Int}
+                           ,closures   :: MVar (M.Map Int ([LogElem], EventF))}
+
                   deriving Typeable
 
 
@@ -819,13 +825,8 @@ defConnection size=
  Connection (createNode "program" 0) Nothing  size
                  (error "defConnection: accessing network events out of listen")
                  (unsafePerformIO $ newMVar ())
-                 False False 0
--- #else
---defConnection size= Connection () Nothing  size
---                 (error "defConnection: accessing network events out of listen")
---                 (unsafePerformIO $ newMVar ())
---                 False False 0
--- #endif
+                 False (unsafePerformIO $ newMVar M.empty)
+
 
 
 #ifndef ghcjs_HOST_OS
@@ -849,14 +850,14 @@ readHandler h= do
 
 
 listen ::  Node ->  Cloud ()
-listen  (node@(Node _  ( port) _ _ _)) = onAll $ do
+listen  (node@(Node _  ( port) _ _ )) = onAll $ do
    addThreads 1
    addNodes [node]
    setData $ Log False [] []
 
    conn' <- getSData <|> return (defConnection 8192)
    ev <- liftIO $ newIORef M.empty
-   let conn= conn'{myNode= node, comEvent=ev}
+   let conn= conn'{myNode= node , comEvent=ev}
    setData conn
 
    mlog <- listenNew (fromIntegral port) conn  <|> listenResponses
@@ -867,6 +868,7 @@ listen  (node@(Node _  ( port) _ _ _)) = onAll $ do
 
 
 listenNew port conn= do --  node bufSize events blocked port= do
+
 
    sock <- liftIO . listenOn  $ PortNumber port
 
@@ -882,6 +884,10 @@ listenNew port conn= do --  node bufSize events blocked port= do
 
    h <- liftIO $ NS.socketToHandle sock ReadWriteMode      -- !!> "NEW SOCKET CONNECTION"
 
+   onFinish $ const $ do
+             liftIO $ print "removing closures new"
+             let Connection{closures=closures}= conn
+             liftIO $ modifyMVar_ closures $ const $ return M.empty
 
    (method,uri, headers) <- receiveHTTPHead h
 
@@ -919,12 +925,23 @@ deriving instance Read PortID
 deriving instance Typeable PortID
 #endif
 
---data PrevConn  = PrevConn  (Maybe Connection) (Maybe Closure)
+
 listenResponses= do
-      conn <- getMailbox "connections"
---      setData $ PrevConn prev clos
+
+      (conn, node) <- getMailbox "connections"
       setData conn
---      delData $ Closure undefined undefined
+      onFinish $ const $ do
+--           plist <- liftIO $ readMVar pool
+--           case plist of
+--            [_] -> do
+             liftIO $ putStrLn "removing node: ">> print node
+             nodes <- getNodes
+             setNodes $ nodes \\ [node]
+
+             liftIO $ print "removing closures responses"
+             let Connection{closures=closures}= conn
+             liftIO $ modifyMVar_ closures $ const $ return M.empty
+
       mread conn
 
 
@@ -944,7 +961,7 @@ checkLog mlog = Transient $ do
 
    where
    process (closl,closr,log) deleteClosure= do
-              Connection {myNode= mynode} <- getData `onNothing` error "Listen: myNode not set"
+              Connection {closures=closures} <- getData `onNothing` error "Listen: myNode not set"
 
               if closl== 0 then do
                    setData $ Log True log  $ reverse log
@@ -952,7 +969,7 @@ checkLog mlog = Transient $ do
                    return $ Just ()                        --  !> "executing top level closure"
 
                else do
-                 mcont <- liftIO $ modifyMVar (closures mynode) $ \map ->
+                 mcont <- liftIO $ modifyMVar closures  $ \map ->
                                                return (if deleteClosure then
                                                            M.delete closl map
                                                          else map, M.lookup closl map)
@@ -976,7 +993,7 @@ checkLog mlog = Transient $ do
 listen node = onAll $ do
         addNodes [node]
         events <- liftIO $ newIORef M.empty
-        let conn= Connection node Nothing 8192 events (unsafePerformIO $ newMVar ()) False False 0 :: Connection
+        let conn=  (defConnection 8192){myNode= node,comEvent=events}--  Connection node Nothing 8192 events (unsafePerformIO $ newMVar ()) False False 0 :: Connection xxxxxx
         setData conn
         r <- listenResponses
         checkLog r
@@ -998,18 +1015,18 @@ emptyPool= liftIO $ newMVar  []
 createNode :: HostName -> Integer -> Node
 createNode h p= Node h ( fromInteger p) (unsafePerformIO emptyPool)
                  ( unsafePerformIO $ newMVar [])
-                 (unsafePerformIO $ newMVar M.empty)
+
 
 createWebNode= Node "webnode" ( fromInteger 0) (unsafePerformIO emptyPool)
                  ( unsafePerformIO $ newMVar [("webnode","",0)])
-                 (unsafePerformIO $ newMVar M.empty)
+
 
 instance Eq Node where
-    Node h p _ _ _==Node h' p' _ _ _= h==h' && p==p'
+    Node h p _ _ ==Node h' p' _ _= h==h' && p==p'
 
 
 instance Show Node where
-    show (Node h p _ servs _)= show (h,p,unsafePerformIO $ readMVar servs)
+    show (Node h p _ servs )= show (h,p,unsafePerformIO $ readMVar servs)
 
 
 instance Read Node where
@@ -1019,10 +1036,10 @@ instance Read Node where
           in case r of
             [] -> []
             [((h,p,ss),s')] ->  [(Node h p empty
-              (unsafePerformIO $ newMVar ss)
-             (unsafePerformIO $ newEmptyMVar),s')]
+              (unsafePerformIO $ newMVar ss),s')]
           where
           empty= unsafePerformIO  emptyPool
+
 
 --newtype MyNode= MyNode Node deriving(Read,Show,Typeable)
 
@@ -1081,6 +1098,7 @@ getMyNode =  do
 getNodes :: MonadIO m => m [Node]
 getNodes  = liftIO $ atomically $ readTVar  nodeList
 
+-- | add nodes to the list of nodes
 addNodes :: (MonadIO m, MonadState EventF m) => [Node] -> m ()
 addNodes   nodes=  do
 
@@ -1091,6 +1109,9 @@ addNodes   nodes=  do
   liftIO . atomically $ do
     prevnodes <- readTVar nodeList
     writeTVar nodeList $ nub $ prevnodes  ++ nodes
+
+-- | set the list of nodes
+setNodes nodes= liftIO $ atomically $ writeTVar nodeList $  nodes
 
 -- #ifndef ghcjs_HOST_OS
 --verifyNode (WebNode pool)= do
@@ -1182,21 +1203,20 @@ connect'  remotenode= do
     nodes' <- runAt remotenode $  do
                    mclustered $ local $ addNodes nodes
                    local $ do
-                      liftIO $ putStrLn  "New Connected nodes: " >> print nodes
+                      liftIO $ putStrLn  "New  nodes: " >> print nodes
                       n <- getNodes
                       my <- getMyNode
-                      liftIO $ putStrLn  "Connected to nodes: " >> print n
                       return $ n \\ [my]
 
     let newNodes = remotenode : nodes'
     let n = newNodes \\ nodes
     when (not $ null n) $ mclustered $ local $ do
-          liftIO $ putStrLn  "New Connected nodes: " >> print n
+          liftIO $ putStrLn  "New  nodes: " >> print n
           addNodes n   -- add the new discovered nodes to the already known ones.
     local $ do
        addNodes  nodes
        nodes <- getNodes
-       liftIO $ putStrLn  "Connected to nodes: " >> print nodes
+       liftIO $ putStrLn  "Known nodes: " >> print nodes
 
 
 --------------------------------------------

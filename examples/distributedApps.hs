@@ -38,10 +38,80 @@ import qualified Data.JSString as JS hiding (span,empty,strip,words)
 
 main =  keep $ do
        port <- getPort
-       initWebApp port $  do
+       initWebApp port $  mapReduce <|>  chat <|>  addNode
 
-          server <- onAll $ getSData <|> error "server not set"
-          wormhole server $ onBrowser mapReduce <|> onBrowser  chat <|> onServer addNode
+
+-- A Web node launch a map-reduce computation in all the server nodes, getting data from a
+-- textbox and render the results returned
+
+mapReduce= onBrowser $ do
+
+    content <-  local . render $
+                    textArea   (fs "") ! atr "placeholder" (fs "enter the content")
+                                       ! atr "rows"  (fs "4")
+                                       ! atr "cols"  (fs "80")
+
+                     <++  br
+                     <*** inputSubmit "send" `fire` OnClick
+                     <++  br
+
+    r <- atRemote $ do
+               lliftIO $ print content
+               r<- reduce  (+) . mapKeyB (\w -> (w, 1 :: Int))  $ distribute $ V.fromList $ words content
+               lliftIO $ putStr "result:" >> print r
+               return   (r :: M.Map String Int)
+
+
+    local . render $ rawHtml $ do
+                 h1 "Results"
+                 mconcat[i "word " >> b w >> i " appears " >> b n >> i " times" >> br
+                        | (w,n) <- M.assocs r]
+
+
+fs= fromString
+
+-- a chat widget that run in the browser and in a cloud of servers
+
+chat=  onBrowser $  do
+    let chatMessages= T.pack "chatMessages"
+
+    local . render . rawHtml $ div ! id (fs "chatbox")
+                                   ! style (fs "margin-top:1cm;overflow: auto;height: 200px;background-color: #FFCC99; max-height: 200px;")
+                                   $ noHtml  -- create the chat box
+
+    sendMessages chatMessages <|>  waitMessages chatMessages
+
+  where
+  sendMessages chatMessages = do
+      let entry= boxCell (fs "msg") ! atr "size"  (fs "90")
+      text <- local . render $ (mk entry Nothing )  `fire` OnChange
+                <*** inputSubmit "send"
+                <++ br
+      local $ entry .= ""
+
+      atRemote $ do
+          node <- local getMyNode
+          clustered $ local $ putMailbox chatMessages (showNode node ++ text :: String)
+          return ()
+
+  showNode node= nodeHost node ++ ":" ++ show (nodePort node) ++ ">"
+
+  waitMessages chatMessages = do
+    resp <- atRemote . local $  getMailbox chatMessages  -- atRemote, in the server
+                                                           -- wait in the server for messages
+
+    local . render . at (fs "#chatbox") Append $ rawHtml $ do
+                                          p (resp :: String)    -- display the response
+#ifdef ghcjs_HOST_OS
+                                          liftIO $ scrollBottom $ fs "chatbox"
+
+foreign import javascript unsafe
+  "var el= document.getElementById($1);el.scrollTop=  el.scrollHeight"
+  scrollBottom  :: JS.JSString -> IO()
+#endif
+
+
+
 
 getPort :: TransIO Integer
 getPort =
@@ -66,85 +136,5 @@ addNode=do
           if connectit== "y" then connect'  nnode
                              else local $ addNodes [nnode]
    empty
-
-
-
--- A Web node launch a map-reduce computation in all the server nodes, getting data from a
--- textbox and render the results returned
-
-mapReduce= do
-
-    content <-  local . render $
-                    textArea   (fs "") ! atr "placeholder" (fs "enter the content")
-                                       ! atr "rows"  (fs "4")
-                                       ! atr "cols"  (fs "80")
-
-                     <++  br
-                     <*** inputSubmit "send" `fire` OnClick
-                     <++  br
-
-    r <- atRemote $ do
-               lliftIO $ print content
-               r<- reduce  (+) . mapKeyB (\w -> (w, 1 :: Int))  $ getText words content
-               lliftIO $ putStr ">>>>>>>>>>>>>>" >> print r
-               return (r :: M.Map String Int)
-
-
-    local . render $ rawHtml $do
-                 h1 "Results"
-                 mconcat[i "word " >> b w >> i " appears " >> b n >> i " times" >> br
-                        | (w,n) <- M.assocs r]
-
-
-fs= fromString
-
-
-chat=   do
-    let chatMessages= T.pack "chatMessages"
-
-    local . render . rawHtml $ div ! id (fs "chatbox")
-                                   ! style (fs "margin-top:1cm;overflow: auto;height: 200px;background-color: #FFCC99; max-height: 200px;")
-                                   $ noHtml  -- create the chat box
-
-    sendMessages chatMessages <|>  waitMessages chatMessages
-
-  where
-  sendMessages chatMessages = do
-      let entry= boxCell (fs "msg") ! atr "size"  (fs "90")
-      text <- local . render $ (mk entry Nothing )  `fire` OnChange
-                <*** inputSubmit "send"
-                <++ br
-      local $ entry .= ""
-
-      atRemote $ do
-          node <- local getMyNode
-          clustered $ local $ putMailbox chatMessages (show node ++ text :: String)
-          return ()
-
-
-  waitMessages chatMessages = do
-    resp <- atRemote . local $  getMailbox chatMessages  -- atRemote, in the server
-                                                           -- wait in the server for messages
-
-    local . render . at (fs "#chatbox") Append $ rawHtml $ do
-                                          p (resp :: String)    -- display the response
-#ifdef ghcjs_HOST_OS
-                                          liftIO $ scrollBottom $ fs "chatbox"
-
-foreign import javascript unsafe
-  "var el= document.getElementById($1);el.scrollTop=  el.scrollHeight"
-  scrollBottom  :: JS.JSString -> IO()
-#endif
-
--- only execute if is the browser but can call the server:
-onBrowser x= do
-     r <- local $  return isBrowserInstance
-     if r then x else empty
-
-onServer x= do
-     r <- local $  return isBrowserInstance
-     if not r then x else empty
-
-
 
 

@@ -11,7 +11,7 @@
 -- |
 --
 -----------------------------------------------------------------------------
-
+{-# LANGUAGE OverloadedStrings #-}
 module Transient.Move.Services  where
 
 import Transient.Base
@@ -38,7 +38,7 @@ startServices :: Cloud ()
 startServices= local $ do
   node <-  getMyNode
   liftIO $ print node
-  servs <-  liftIO $ readMVar $ services node
+  servs <-  liftIO $ readMVar $ nodeServices node
   mapM_ start  servs
   where
   start (package,program,port)= liftIO $ do
@@ -68,7 +68,7 @@ install package program port =  do
 
      let service= (package, program,  port)
 
-     Connection{myNode=Node{services=rservs}} <- onAll getSData <|> error "Mynode not set: use setMyNode"
+     Connection{myNode=Node{nodeServices=rservs}} <- onAll getSData <|> error "Mynode not set: use setMyNode"
      lliftIO $ modifyMVar_  rservs $ \servs ->  return$ service:servs
      node <-  onAll getMyNode
      notifyService node service
@@ -97,7 +97,7 @@ freePort :: MonadIO m => m Int
 freePort= liftIO $ modifyMVar rfreePort $ \ n -> return (n+1,n)
 
 initService node package program= loggedc $ do
-    services <- onAll $ liftIO $ readMVar $ services node
+    services <- onAll $ liftIO $ readMVar $ nodeServices node
     case   find  (\(package', program',_) -> package==package' && program== program') $ services  of
        Just (_,_,port) -> return port
        Nothing -> do
@@ -107,7 +107,7 @@ initService node package program= loggedc $ do
             empty
           <|> do
             Connection{comEvent=ev} <- onAll getSData
-            (node', (package', program',port)) <- local waitNodeEvents
+            (node', (package', program',port)) <- local $ getMailbox "services"
             if node'== node && package' == package && program'== program
                  then return port
                  else empty
@@ -118,10 +118,10 @@ notifyService node service=  clustered $ do
         nodes <- atomically $ readTVar nodeList
 
         let nod = fromMaybe (error $ "node not found :" ++  show node) $ find (== node) nodes :: Node
-        modifyMVar_ (services nod) $ \servs -> return $ service:servs
+        modifyMVar_ (nodeServices nod) $ \servs -> return $ service:servs
         return ()
 
-     local $ sendNodeEvent (node,service)
+     local $ putMailbox "services" (node,service)
      return ()
 
 {-

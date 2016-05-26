@@ -230,7 +230,7 @@ reduce red  (dds@(DDS mx))= loggedc $ do
                  (i,folded) <- loggedc $ parallelize foldthem $  M.assocs  mpairs
 
                  runAt (nodes !! i) $  (local $ putMailbox box $ Reduce folded)
-                                                             -- !> ("SEND REDUCE DATA",folded)
+                                                            -- !> ("SEND REDUCE DATA",folded)
                  n <- lliftIO $ modifyMVar nsent $ \r -> return (r+1, r+1)
                  when (n == length) $ sendEnd  nodes
 
