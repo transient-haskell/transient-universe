@@ -44,16 +44,13 @@ main =   simpleWebApp 8080 app
 
 app= do
 
-  server <- onAll $ getSData
-  wormhole server $ do
-
     content <-  local . render $
                     textArea  (fs "") ! atr "placeholder" (fs "enter the content")
                                       ! atr "rows" (fs "4")
                                       ! atr "cols" (fs "80")
                                  `fire` OnChange
                      <++ br
-                     <*** inputSubmit "send"  -- `fire` OnClick
+                     <** inputSubmit "send"  -- `fire` OnClick
 
     r <- atRemote $ do
                lliftIO $ print content

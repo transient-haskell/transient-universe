@@ -28,7 +28,7 @@ import Control.Monad.IO.Class
 -- with three examples composed together, each one is a widget that execute
 -- code in the browser AND the server.
 
-main = simpleWebApp 2020 $  demo <|> demo2  <|>  counters
+main = simpleWebApp 8080 $  demo <|> demo2  <|>  counters
 
 
 
@@ -44,9 +44,9 @@ demo= do
 
    local . render $ wlink () (p " stream fibonacci numbers")
 
-   -- stream fibonancci
+   -- stream fibonacci
 
-   r <-  atServer $ do
+   r <-  atRemote $ do
                let fibs= 0 : 1 : zipWith (+) fibs (tail fibs) :: [Int]  -- fibonacci numb. definition
 
                r <- local  . threads 1 . choose $ take 10 fibs
@@ -70,7 +70,7 @@ demo2= do
        inputString Nothing ! atr "placeholder" (fs "enter your name") `fire` OnKeyUp
              <++ br                                        -- new line
 
-   r <- atServer $ lliftIO $ print (name ++ " calling") >> return ("Hi " ++ name)
+   r <- atRemote $ lliftIO $ print (name ++ " calling") >> return ("Hi " ++ name)
 
    local . render . rawHtml $ do
             p " returned"
@@ -86,7 +86,7 @@ fs= toJSString
 counters= do
    local . render . rawHtml $ do
           hr
-          p "To demonstrate wormhole, teleport, widgets, interactive streaming"
+          p "To demonstrate the use of teleport, widgets, interactive streaming"
           p "and composability in a web application."
           br
           p "This is one of the most complicated interactions: how to control a stream in the server"
@@ -99,7 +99,7 @@ counters= do
    counter server <|> counter server
 
    where
-   counter server = wormhole server $ do
+   counter server =  do
          op <-  startOrCancel
          teleport          -- translates the computation to the server
          r <- local $ case op of

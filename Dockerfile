@@ -18,6 +18,7 @@ RUN  echo  "allow-different-user: true" > stack.yaml \
      && echo "         url: https://s3.amazonaws.com/ghcjs/ghcjs-0.2.0.20160414_ghc-7.10.3.tar.gz"  >> stack.yaml \
      && echo "         sha1: 6d6f307503be9e94e0c96ef1308c7cf224d06be3"  >> stack.yaml \
      && cat stack.yaml \
+     && chnow -R root /root/.stack/* \
      && stack setup --allow-different-user   --compiler ghcjs-0.2.0.20160414_ghc-7.10.3
 
 

@@ -3,7 +3,10 @@ flags: {}
 
 packages:
 - '.'
-- ../transient
+
+- location:
+    git: https://github.com/agocorona/transient.git
+    commit: 517792fbcbece9577b6b3ad91895edfa92b18049
 
 extra-deps: [transient-0.2]
 

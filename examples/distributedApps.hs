@@ -3,7 +3,6 @@
 module Main where
 
 import Prelude hiding (div,id)
-import Transient.Internals ((!>))
 import Transient.Base
 
 #ifdef ghcjs_HOST_OS
@@ -20,15 +19,11 @@ import GHCJS.HPlay.View
 
 import Transient.Move
 import Transient.Indeterminism
-import Transient.EVars
 import Control.Applicative
-import Control.Monad
-import Data.Typeable
 import qualified Data.Vector as V
 import qualified Data.Map as M
 import Transient.MapReduce
 import Control.Monad.IO.Class
-import System.IO
 import Data.String
 import qualified Data.Text as T
 #ifdef ghcjs_HOST_OS
@@ -52,7 +47,7 @@ mapReduce= onBrowser $ do
                                        ! atr "cols"  (fs "80")
 
                      <++  br
-                     <*** inputSubmit "send" `fire` OnClick
+                     <** inputSubmit "send" `fire` OnClick
                      <++  br
 
     r <- atRemote $ do
@@ -85,7 +80,7 @@ chat=  onBrowser $  do
   sendMessages chatMessages = do
       let entry= boxCell (fs "msg") ! atr "size"  (fs "90")
       text <- local . render $ (mk entry Nothing )  `fire` OnChange
-                <*** inputSubmit "send"
+                <** inputSubmit "send"
                 <++ br
       local $ entry .= ""
 

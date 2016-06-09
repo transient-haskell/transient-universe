@@ -36,7 +36,7 @@ addNodes, shuffleNodes,
 -- * low level
 
  getWebServerNode, Node(..), nodeList, Connection(..), Service(),
- isBrowserInstance, IdLine(..), Repeat(..), Prefix(..), addPrefix
+ isBrowserInstance, Prefix(..), addPrefix
 
 
 ) where
@@ -228,17 +228,15 @@ callTo :: Loggable a => Node -> Cloud a -> Cloud a
 callTo node  remoteProc=
    wormhole node $ atRemote remoteProc
 
--- |  withing an open connection to other node open by `wormhole`, it run the computation in the other node and return
+-- |  Within an open connection to other node opened by `wormhole`, it run the computation in the remote node and return
 -- the result back  to the original node.
 atRemote proc= loggedc $ do
      teleport                   -- !> "teleport 1111"
-     r <- local $ runCloud proc <*** setData WasRemote
-     teleport                  -- !> "teleport 2222"
+     r <- Cloud $ runCloud proc <** setData WasRemote
+     teleport                  --  !> "teleport 2222"
      return r
 
 -- | synonymous of `callTo`
--- all the previous actions from `listen` to this statement must have been logged
-
 runAt :: Loggable a => Node -> Cloud a -> Cloud a
 runAt= callTo
 
@@ -286,7 +284,7 @@ wsRead :: Loggable a => WebSocket  -> TransIO  a
 wsRead ws= do
   dat <- react (hsonmessage ws) (return ())
   case JM.getData dat of
-    JM.StringData str  ->  return (read' $ JS.unpack str)    -- !> str  !> "<------<----<----<------"
+    JM.StringData str  ->  return (read' $ JS.unpack str)  --   !> ("webSocket read", str)  !> "<------<----<----<------"
     JM.BlobData   blob -> error " blob"
     JM.ArrayBufferData arrBuffer -> error "arrBuffer"
 
@@ -395,9 +393,7 @@ read' s= case readsPrec' 0 s of
        _  -> error $ "reading " ++ s
 
 -- | A wormhole opens a connection with another node anywhere in a computation.
---wormhole :: Loggable a => Node -> Cloud a -> Cloud a
-
-
+-- `teleport` uses this connection to translate the computation back and forth between the two nodes
 wormhole :: Loggable a => Node -> Cloud a -> Cloud a
 wormhole node (Cloud comp) = local $ Transient $ do
 
@@ -407,7 +403,7 @@ wormhole node (Cloud comp) = local $ Transient $ do
    logdata@(Log rec log fulLog) <- getData `onNothing` return (Log False [][])
 
    mynode <- runTrans getMyNode     -- debug
-   if not rec                                                     -- !> ("recovery", rec)
+   if not rec                                                    --  !> ("wormhole recovery", rec)
             then runTrans $ (do
 
                     conn <-  mconnect node                   --  !> (mynode,"connecting node ",  node)
@@ -416,10 +412,10 @@ wormhole node (Cloud comp) = local $ Transient $ do
                     addPrefix    -- for the DOM identifiers
 #endif
                     comp )
-                  <** do when (isJust moldconn) . setData $ fromJust moldconn
-                         when (isJust mclosure).  setData $ fromJust mclosure
+                  <*** do when (isJust moldconn) . setData $ fromJust moldconn
+                          when (isJust mclosure).  setData $ fromJust mclosure
 
-                    -- <*** is not enough
+                    -- <** is not enough
             else do
              let conn = fromMaybe (error "wormhole: no connection in remote node") moldconn
 --             conn <- getData `onNothing` error "wormhole: no connection in remote node"
@@ -427,7 +423,7 @@ wormhole node (Cloud comp) = local $ Transient $ do
              setData $ conn{calling= False}
 
              runTrans $  comp
-                     <** do
+                     <*** do
 --                          when (null log) $ setData WasRemote    !> "NULLLOG"
                           when (isJust mclosure) . setData $ fromJust mclosure
 
@@ -437,18 +433,17 @@ wormhole node (Cloud comp) = local $ Transient $ do
 #ifndef ghcjs_HOST_OS
 type JSString= String
 pack= id
+
+
+
 #endif
 
-
 newtype Prefix= Prefix JSString deriving(Read,Show)
-newtype IdLine= IdLine JSString deriving(Read,Show)
-data Repeat= Repeat | RepH JSString deriving (Eq, Read, Show)
-
-
 addPrefix= Transient $ do
    r <- liftIO $ replicateM  5 (randomRIO ('a','z'))
    setData $ Prefix $ pack  r
    return $ Just ()
+
 
 -- | translates computations back and forth
 -- reusing a connection opened by `wormhole`
@@ -460,7 +455,7 @@ teleport =  do
 
      -- send log with closure at head
      Log rec log fulLog <- getData `onNothing` return (Log False [][])
-     if not rec   -- !> ("rec,loc fulLog=",rec,log,fulLog)
+     if not rec    -- !> ("teleport rec,loc fulLog=",rec,log,fulLog)
                   -- if is not recovering in the remote node then it is active
       then  do
          conn@Connection{closures= closures,calling= calling} <- getData
@@ -479,8 +474,8 @@ teleport =  do
          let tosend= reverse $ if closRemote==0 then fulLog else  log -- drop offset  $ reverse fulLog  !> ("fulLog", fulLog)
 
          runTrans $ msend conn $ SMore (closRemote,closLocal, tosend )
-                                              --    !> ("teleport sending",(closRemote,closLocal,offset, tosend ))
-                                              --    !> "--------->------>---------->"
+--                                                  !> ("teleport sending", tosend )
+--                                                  !> "--------->------>---------->"
 
          setData $ if (not calling) then  WasRemote else WasParallel
 
@@ -567,7 +562,7 @@ mconnect  node@(Node _ _ _ _ )=  do
                   return  handle                        -- !>   "REUSED!"
 
       _ -> do
-        liftIO $ putStr "******CONNECTING NODE: " >> print node
+        liftIO $ putStr "*****CONNECTING NODE: " >> print node
         my <- getMyNode
 --        liftIO  $ putStr "OPENING CONNECTION WITH :" >> print port
         Connection{comEvent= ev} <- getSData <|> error "connect: listen not set for this node"
@@ -841,7 +836,7 @@ getBuffSize=
 
 readHandler h= do
     line <- hGetLine h
-    return ()                           -- !> line !> "------<---------------<----------<"
+--    return ()                             !> ("socket read",line) !> "------<---------------<----------<"
     let [(v,left)] = readsPrec' 0 line
     return  v
    `catch` (\(e::SomeException) ->  return $ SError e)
@@ -885,7 +880,6 @@ listenNew port conn= do --  node bufSize events blocked port= do
    h <- liftIO $ NS.socketToHandle sock ReadWriteMode      -- !!> "NEW SOCKET CONNECTION"
 
    onFinish $ const $ do
-             liftIO $ print "removing closures new"
              let Connection{closures=closures}= conn
              liftIO $ modifyMVar_ closures $ const $ return M.empty
 
@@ -909,7 +903,8 @@ listenNew port conn= do --  node bufSize events blocked port= do
 
            parallel $ do
                msg <- WS.receiveData sconn             -- WebSockets
-               return . read $ BC.unpack msg          -- !> msg  !> "<-------<---------<--------------"
+               return . read $ BC.unpack msg
+--                                                      !> ("new msg",msg)  !> "<-------<---------<--------------"
 
 
 
@@ -938,7 +933,7 @@ listenResponses= do
              nodes <- getNodes
              setNodes $ nodes \\ [node]
 
-             liftIO $ print "removing closures responses"
+
              let Connection{closures=closures}= conn
              liftIO $ modifyMVar_ closures $ const $ return M.empty
 
@@ -1165,7 +1160,6 @@ clustered proc= loggedc $ do
     nodes <-  local getNodes
 
     let nodes' = filter (not . isWebNode) nodes
-    lliftIO $ print nodes'
     foldr (<|>) empty $ map (\node -> runAt node proc) nodes'  -- !> ("clustered",nodes')
     where
     isWebNode Node {nodeServices=srvs}

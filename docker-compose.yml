@@ -1,7 +1,7 @@
 web:
   build: .
-  command: 'bash -c ''./webapp'''
-  working_dir: \app\user
+  command: 'bash -c ''./examples/webapp'''
+  working_dir: /app/user
   environment:
     PORT: 8080
   ports:
@@ -9,10 +9,10 @@ web:
 shell:
   build: .
   command: bash
-  working_dir: \app\user
+  working_dir: /app/user
   environment:
     PORT: 8080
   ports:
     - '8080:8080'
   volumes:
-    - '.:\app\user'
+    - '.:/app/user'
