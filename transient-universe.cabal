@@ -24,6 +24,7 @@ library
             base >4 && <5,
             mtl -any,
             random -any,
+            transient -any,
             containers -any,
             stm -any,
             transformers -any,
@@ -31,7 +32,8 @@ library
             bytestring -any,
             time -any,
             ghcjs-base -any,
-            ghcjs-prim -any
+            ghcjs-prim -any,
+            text -any
     else
         build-depends:
             base >4 && <5,
