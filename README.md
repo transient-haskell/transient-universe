@@ -17,7 +17,9 @@ Distributed Browser/server Widgets
 -------
 Browser nodes can integrate Hplayground for ghcjs, a reactive client side library based in trasient (package ghcjs-hplay) they can create widgets with HTML form elements and control the server nodes. A computation can move from browser to server and back at runtime despite the different architecture.
 
-Widgets with code running in browser and servers can compose with other widgets. A Browser node can access to many server nodes
+Widgets with code running in browser and servers can compose with other widgets. A Browser node can gain access to many server nodes trough the  server that delivered the web application. 
+
+These features can make transient ideal for client as well as server side-driven applications, whenever distribution and push-driven reactivity is necessary either in the servers or in the browser clients.
 
 Map-reduce
 ==========
