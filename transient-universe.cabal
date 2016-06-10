@@ -1,5 +1,5 @@
 name: transient-universe
-version: 0.2
+version: 0.3
 cabal-version: >=1.10
 build-type: Simple
 license: GPL-3
