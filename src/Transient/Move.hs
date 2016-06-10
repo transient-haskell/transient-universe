@@ -109,7 +109,7 @@ import System.Random
 
 import Data.Dynamic
 import Data.String
-import System.Random
+
 
 #ifdef ghcjs_HOST_OS
 type HostName  = String
