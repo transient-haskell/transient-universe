@@ -31,9 +31,9 @@ import qualified Data.JSString as JS hiding (span,empty,strip,words)
 #endif
 
 
+
 main =  keep $ do
-       port <- getPort
-       initWebApp port $  mapReduce <|>  chat <|>  addNode
+       initNode $  mapReduce <|>  chat  <|> inputNodes
 
 
 -- A Web node launch a map-reduce computation in all the server nodes, getting data from a
@@ -68,6 +68,7 @@ fs= fromString
 -- a chat widget that run in the browser and in a cloud of servers
 
 chat=  onBrowser $  do
+
     let chatMessages= T.pack "chatMessages"
 
     local . render . rawHtml $ div ! id (fs "chatbox")
@@ -108,28 +109,6 @@ foreign import javascript unsafe
 
 
 
-getPort :: TransIO Integer
-getPort =
-      if isBrowserInstance then return 0 else do
-          oneThread $ option "start" "re/start"
-          port <- input (const True) "port to listen? "
-          liftIO $ putStrLn "node started"
-          return port
 
-addNode=do
-   onServer $ do
-          local $ option "add"  "add a new node at any moment"
-
-          host <- local $ do
-                    r <- input (const True) "Host to connect to: (none): "
-                    if r ==  "" then stop else return r
-
-          port <-  local $ input (const True) "port?"
-
-          connectit <- local $ input (\x -> x=="y" || x== "n") "connect to get his list of nodes?"
-          let nnode= createNode host port
-          if connectit== "y" then connect'  nnode
-                             else local $ addNodes [nnode]
-   empty
 
 

@@ -48,7 +48,6 @@ library
             network -any,
             transformers -any,
             process -any,
-            network -any,
             network-info -any,
             bytestring -any,
             time -any,
@@ -60,56 +59,14 @@ library
             hashable -any,
             text -any
 
-    exposed-modules:
-            Transient.Move
-            Transient.MapReduce
-    if ! impl(ghcjs >=0.1)
-
+    if !impl(ghcjs >=0.1)
         exposed-modules:
             Transient.Move.Services
-
+    exposed-modules:
+        Transient.Move
+        Transient.MapReduce
     default-language: Haskell2010
     hs-source-dirs: src .
+    other-modules:
+        Transient.Move.Utils
 
--- executable DistrbDataSets
---    main-is: DistrbDataSets.hs
---    build-depends:
---        base -any,
---        network -any,
---        transient -any,
---        TCache -any,
---        transformers -any,
---        transient-universe -any,
---        containers -any
---
---    hs-source-dirs: examples
---    ghc-options:
-
---test-suite test-transient
---    type: exitcode-stdio-1.0
---    main-is: TestSuite.hs
---    build-depends:
---        base >4 && <5,
---        mtl -any,
---        random -any,
---        containers -any,
---        directory -any,
---        filepath -any,
---        stm -any,
---        HTTP -any,
---        network -any,
---        transformers -any,
---        process -any,
---        network -any,
---        network-info -any,
---        bytestring -any,
---        time -any,
---        vector -any,
---        TCache -any,
---        websockets -any,
---        network-uri -any,
---        case-insensitive -any,
---        hashable -any,
---        containers >=0.5.6.2 && <0.6
---    default-language: Haskell2010
---    hs-source-dirs: tests src .

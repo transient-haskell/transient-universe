@@ -95,11 +95,11 @@ counters= do
           p "in this example, events flow from the server to the browser (a counter) and back from"
           p "the browser to the server (initiating and cancelling the counters)"
 
-   server <- local $ getSData <|> error "no server???"
-   counter server <|> counter server
+--   server <- local $ getSData <|> error "no server???"
+   counter  <|> counter
 
    where
-   counter server =  do
+   counter  =  do
          op <-  startOrCancel
          teleport          -- translates the computation to the server
          r <- local $ case op of

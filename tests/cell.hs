@@ -16,7 +16,6 @@ import Control.Concurrent(threadDelay)
 
 
 
-
 main= keep $ do
    port <- getPort
 
@@ -26,15 +25,15 @@ main= keep $ do
        where
        cellA = scell "cella" $ runCloud $ do
                      lliftIO $ print "local"
-                     atRemote $ do
-                       lliftIO $ print "running cella at server"
-                       return 2
+--                     atRemote $ do
+                     lliftIO $ print "running cella at server"
+                     return 2
 
        cellB = scell "cellb" $  runCloud $ do
                     lliftIO $ print "local2"
-                    atRemote $ do
-                       lliftIO $ print "running cellb at server"
-                       return 4
+--                    atRemote $ do
+                    lliftIO $ print "running cellb at server"
+                    return 4
 
 
 main2= keep $ do

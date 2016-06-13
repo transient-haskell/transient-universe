@@ -41,11 +41,10 @@ addNodes, shuffleNodes,
 
 ) where
 import Transient.Base
-import Transient.Internals(killChildren,getCont,runCont,EventF(..),LogElem(..),Log(..)
+import Transient.Internals((!>),killChildren,getCont,runCont,EventF(..),LogElem(..),Log(..)
        ,onNothing,RemoteStatus(..),getCont,StateIO,readsPrec')
 import Transient.Logged
 import Transient.EVars
-import Transient.Stream.Resource
 import Data.Typeable
 import Control.Applicative
 #ifndef ghcjs_HOST_OS
@@ -53,8 +52,11 @@ import Network
 import Network.Info
 import qualified Network.Socket as NS
 import qualified Network.BSD as BSD
-import qualified Network.WebSockets as NS(sendTextData,receiveData, Connection,RequestHead(..),sendClose)
+import qualified Network.WebSockets as NWS(RequestHead(..))
+
 import qualified Network.WebSockets.Connection   as WS
+
+
 import Network.WebSockets.Stream   hiding(parse)
 import           Data.ByteString       as B             (ByteString,concat)
 import qualified Data.ByteString.Char8 as BC
@@ -258,7 +260,7 @@ msend (Connection _(Just (Node2Node _ h sock)) _ _ blocked _ _ ) r= do
 
 
 msend (Connection _(Just (Node2Web sconn)) _ _ blocked _  _) r=liftIO $
-  withMVar blocked $ const $ NS.sendTextData sconn $ BS.pack (show r)
+  withMVar blocked $ const $ WS.sendTextData sconn $ BS.pack (show r)
 
 
 #else
@@ -284,7 +286,8 @@ wsRead :: Loggable a => WebSocket  -> TransIO  a
 wsRead ws= do
   dat <- react (hsonmessage ws) (return ())
   case JM.getData dat of
-    JM.StringData str  ->  return (read' $ JS.unpack str)  --   !> ("webSocket read", str)  !> "<------<----<----<------"
+    JM.StringData str  ->  return (read' $ JS.unpack str)
+--                                    !> ("Browser webSocket read", str)  !> "<------<----<----<------"
     JM.BlobData   blob -> error " blob"
     JM.ArrayBufferData arrBuffer -> error "arrBuffer"
 
@@ -382,8 +385,10 @@ mread (Connection _(Just (Node2Node _ h _)) _ _ blocked _ _ ) =  parallel $ read
 
 mread (Connection node  (Just (Node2Web sconn )) bufSize events blocked _ _)=
         parallel $ do
-            s <- NS.receiveData sconn
-            return . read' $  BS.unpack s         -- !>  ("WS MREAD RECEIVED ---->", s)
+            s <- WS.receiveData sconn
+            return . read' $  BS.unpack s          !>  ("WS MREAD RECEIVED ---->", s)
+
+--           `catch`(\(e ::SomeException) -> return $ SError e)
 
 getWebServerNode port= return $ createNode "localhost" port
 #endif
@@ -536,7 +541,7 @@ mclose (Connection _
 mclose (Connection node
    (Just (Node2Web sconn ))
    bufSize events blocked _  _)=
-    NS.sendClose sconn ("closemsg" :: ByteString)
+    WS.sendClose sconn ("closemsg" :: ByteString)
 
 #else
 
@@ -640,7 +645,7 @@ data ConnectionData=
                               ,socket ::Socket
                                    }
 
-                   | Node2Web{webSocket :: NS.Connection}
+                   | Node2Web{webSocket :: WS.Connection}
 #else
 
                    Web2Node{webSocket :: WebSocket}
@@ -665,22 +670,23 @@ data Connection= Connection{myNode :: Node
 -- Internally, the mailbox is in a well known EVar stored by `listen` in the `Connection` state.
 newMailbox :: T.Text -> TransIO ()
 newMailbox name= do  -- liftIO $ replicateM  10 (randomRIO ('a','z'))
+   Connection{comEvent= mv} <- getData `onNothing` errorMailBox
+   onFinish . const $ liftIO $ do print "newMailbox finisn" ; atomicModifyIORef mv $ \mailboxes ->   (M.delete name  mailboxes,())
    ev <- newEVar
-   Connection{comEvent= mv} <- getData `onNothing` error "getMailBox: accessing network events out of listen"
    liftIO $ atomicModifyIORef mv $ \mailboxes ->   (M.insert name ev mailboxes,())
 
 
 -- | write tot he mailbox
 putMailbox :: Typeable a => T.Text -> a -> TransIO ()
 putMailbox name dat= do --  sendNodeEvent (name, Just dat)
-   Connection{comEvent= mv} <- getData `onNothing` error "getMailBox: accessing network events out of listen"
+   Connection{comEvent= mv} <- getData `onNothing` errorMailBox
    mbs <- liftIO $ readIORef mv
    let mev =  M.lookup name mbs
    case mev of
      Nothing ->newMailbox name >> putMailbox name dat
      Just ev -> writeEVar ev $ toDyn dat
 
-
+errorMailBox= error "MailBox: No connection open.Use wormhole"
 
 -- | get messages from the mailbox that matches with the type expected.
 -- The order of reading is defined by `readTChan`
@@ -688,14 +694,14 @@ putMailbox name dat= do --  sendNodeEvent (name, Just dat)
 -- each message wake up all the `getMailbox` computations waiting for it.
 
 getMailbox name= do
-   Connection{comEvent= mv} <- getData `onNothing` error "getMailBox: accessing network events out of listen"
+   Connection{comEvent= mv} <- getData `onNothing` errorMailBox
    mbs <- liftIO $ readIORef mv
    let mev =  M.lookup name mbs
    case mev of
      Nothing ->newMailbox name >> getMailbox name
      Just ev ->do
           d <- readEVar ev
-          case fromDynamic d of
+          case fromDynamic d  !> "getMailBox" of
              Nothing -> empty
              Just x -> return x
 
@@ -839,7 +845,7 @@ readHandler h= do
 --    return ()                             !> ("socket read",line) !> "------<---------------<----------<"
     let [(v,left)] = readsPrec' 0 line
     return  v
-   `catch` (\(e::SomeException) ->  return $ SError e)
+--   `catch` (\(e::SomeException) ->  return $ SError e)
 
 
 
@@ -871,6 +877,8 @@ listenNew port conn= do --  node bufSize events blocked port= do
    liftIO $ do NS.setSocketOption sock NS.RecvBuffer bufSize
                NS.setSocketOption sock NS.SendBuffer bufSize
 
+
+   st <- getCont
    (sock,addr) <- waitEvents $  NS.accept sock         -- !!> "BEFORE ACCEPT"
 --   case addr of
 --     NS.SockAddrInet port host -> liftIO $ print("connection from", port, host)
@@ -879,9 +887,11 @@ listenNew port conn= do --  node bufSize events blocked port= do
 
    h <- liftIO $ NS.socketToHandle sock ReadWriteMode      -- !!> "NEW SOCKET CONNECTION"
 
+
    onFinish $ const $ do
              let Connection{closures=closures}= conn
              liftIO $ modifyMVar_ closures $ const $ return M.empty
+
 
    (method,uri, headers) <- receiveHTTPHead h
 
@@ -891,7 +901,7 @@ listenNew port conn= do --  node bufSize events blocked port= do
            setData $ conn{connData=Just (Node2Node (PortNumber port) h sock )}
 --           setData $ Connection node  (Just (Node2Node (PortNumber port) h sock ))
 --                         bufSize events blocked False True 0
-           parallel $ readHandler  h        -- !> "read Listen"  -- :: TransIO (StreamData [LogElem])
+           killOnFinish $ parallel $ readHandler  h        -- !> "read Listen"  -- :: TransIO (StreamData [LogElem])
 
      _ -> do
            sconn <- httpMode (method,uri, headers) sock
@@ -901,10 +911,10 @@ listenNew port conn= do --  node bufSize events blocked port= do
 --           setData $ (Connection node  (Just (Node2Web sconn ))
 --                         bufSize events blocked False True 0 :: Connection)
 
-           parallel $ do
+           killOnFinish $ parallel $ do
                msg <- WS.receiveData sconn             -- WebSockets
                return . read $ BC.unpack msg
---                                                      !> ("new msg",msg)  !> "<-------<---------<--------------"
+--                                                      !> ("Server WebSocket msg read",msg)  !> "<-------<---------<--------------"
 
 
 
@@ -925,6 +935,8 @@ listenResponses= do
 
       (conn, node) <- getMailbox "connections"
       setData conn
+
+
       onFinish $ const $ do
 --           plist <- liftIO $ readMVar pool
 --           case plist of
@@ -937,7 +949,8 @@ listenResponses= do
              let Connection{closures=closures}= conn
              liftIO $ modifyMVar_ closures $ const $ return M.empty
 
-      mread conn
+
+      killOnFinish $ mread conn
 
 
 type IdClosure= Int
@@ -947,7 +960,6 @@ checkLog mlog = Transient $ do
        case  mlog    of                       -- !> ("RECEIVED ", mlog ) of
              SError e -> do
                  runTrans $ finish $ Just e
---                 closures remove for that connection
                  return Nothing
 
              SDone   -> runTrans(finish Nothing) >> return Nothing
@@ -1232,7 +1244,7 @@ httpMode (method,uri, headers) conn  = do
          let
              pc = WS.PendingConnection
                 { WS.pendingOptions     = WS.defaultConnectionOptions
-                , WS.pendingRequest     =  NS.RequestHead uri headers False -- RequestHead (BC.pack $ show uri)
+                , WS.pendingRequest     =  NWS.RequestHead uri headers False -- RequestHead (BC.pack $ show uri)
                                                       -- (map parseh headers) False
                 , WS.pendingOnAccept    = \_ -> return ()
                 , WS.pendingStream      = stream
