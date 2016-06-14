@@ -60,6 +60,7 @@ import qualified Network.WebSockets.Connection   as WS
 import Network.WebSockets.Stream   hiding(parse)
 import           Data.ByteString       as B             (ByteString,concat)
 import qualified Data.ByteString.Char8 as BC
+import qualified Data.ByteString.Lazy.Char8 as BLC
 import qualified Data.ByteString.Lazy as BL
 import Network.Socket.ByteString as SBS(send,sendMany,sendAll,recv)
 import Data.CaseInsensitive(mk)
@@ -670,6 +671,7 @@ data Connection= Connection{myNode :: Node
 -- Internally, the mailbox is in a well known EVar stored by `listen` in the `Connection` state.
 newMailbox :: T.Text -> TransIO ()
 newMailbox name= do  -- liftIO $ replicateM  10 (randomRIO ('a','z'))
+   return () !> "newMailBox"
    Connection{comEvent= mv} <- getData `onNothing` errorMailBox
    onFinish . const $ liftIO $ do print "newMailbox finisn" ; atomicModifyIORef mv $ \mailboxes ->   (M.delete name  mailboxes,())
    ev <- newEVar
@@ -889,7 +891,7 @@ listenNew port conn= do --  node bufSize events blocked port= do
 
 
    onFinish $ const $ do
-             let Connection{closures=closures}= conn
+             let Connection{closures=closures}= conn !> "listenNew closures empty"
              liftIO $ modifyMVar_ closures $ const $ return M.empty
 
 
@@ -1261,8 +1263,8 @@ httpMode (method,uri, headers) conn  = do
           let uri'= BC.tail $ uriPath uri               -- !> "HTTP REQUEST"
               file= if BC.null uri' then "index.html" else uri'
 
-          content <- liftIO $  BL.readFile ( "static/out.jsexe/"++ BC.unpack file)
-                            `catch` (\(e:: SomeException) -> return "NOT FOUND")
+          content <- liftIO $  BL.readFile ( "./static/out.jsexe/"++ BC.unpack file)
+                            `catch` (\(e:: SomeException) -> return  "Index.html NOT FOUND")
           return ()
           n <- liftIO $ SBS.sendMany conn   $  ["HTTP/1.0 200 OK\nContent-Type: text/html\nConnection: close\nContent-Length: " <> BC.pack (show $ BL.length content) <>"\n\n"] ++
                                   (BL.toChunks content )

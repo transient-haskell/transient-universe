@@ -18,6 +18,7 @@ import GHCJS.HPlay.View
 
 
 import Transient.Move
+import Transient.EVars
 import Transient.Indeterminism
 import Control.Applicative
 import qualified Data.Vector as V
@@ -32,8 +33,7 @@ import qualified Data.JSString as JS hiding (span,empty,strip,words)
 
 
 
-main =  keep $ do
-       initNode $  mapReduce <|>  chat  <|> inputNodes
+main =  keep $  initNode $  mapReduce <|>  chat  <|> inputNodes
 
 
 -- A Web node launch a map-reduce computation in all the server nodes, getting data from a
@@ -79,6 +79,7 @@ chat=  onBrowser $  do
 
   where
   sendMessages chatMessages = do
+--      local $ initFinish >> return ()
       let entry= boxCell (fs "msg") ! atr "size"  (fs "90")
       text <- local . render $ (mk entry Nothing )  `fire` OnChange
                 <** inputSubmit "send"
