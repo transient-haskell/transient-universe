@@ -1,0 +1,14 @@
+
+flags: {}
+
+packages:
+- '.'
+
+- location:
+    git: https://github.com/agocorona/transient.git
+    commit: 8b4347560977b3ebcb25b592dae9bf85d76809be
+
+extra-deps: [transient-0.2]
+
+resolver: lts-3.1
+

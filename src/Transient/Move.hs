@@ -41,7 +41,7 @@ addNodes, shuffleNodes,
 
 ) where
 import Transient.Base
-import Transient.Internals((!>),killChildren,getCont,runCont,EventF(..),LogElem(..),Log(..)
+import Transient.Internals(killChildren,getCont,runCont,EventF(..),LogElem(..),Log(..)
        ,onNothing,RemoteStatus(..),getCont,StateIO,readsPrec')
 import Transient.Logged
 import Transient.EVars
@@ -249,12 +249,13 @@ msend :: Loggable a => Connection -> StreamData a -> TransIO ()
 
 #ifndef ghcjs_HOST_OS
 
-msend (Connection _(Just (Node2Node _ h sock)) _ _ blocked _ _ ) r= do
+msend (Connection _(Just (Node2Node _ sock)) _ _ blocked _ _ ) r= do
   r <- liftIO $ do
        withMVar blocked $
              const $ do
-                 hPutStrLn h (show r)
-                 hFlush h  >> return Nothing `catch` (\(e::SomeException) -> return $ Just e)
+                 SBS.send sock $ BC.pack (show r)
+                 return Nothing
+            `catch` (\(e::SomeException) -> return $ Just e)
   case r of
       Nothing -> return()
       juste -> finish juste
@@ -381,13 +382,13 @@ foreign import javascript safe
 
 
 #else
-mread (Connection _(Just (Node2Node _ h _)) _ _ blocked _ _ ) =  parallel $ readHandler  h
+mread (Connection _(Just (Node2Node _ _)) _ _ blocked _ _ ) =  parallelReadHandler -- !> "mread"
 
 
 mread (Connection node  (Just (Node2Web sconn )) bufSize events blocked _ _)=
         parallel $ do
             s <- WS.receiveData sconn
-            return . read' $  BS.unpack s          !>  ("WS MREAD RECEIVED ---->", s)
+            return . read' $  BS.unpack s         -- !>  ("WS MREAD RECEIVED ---->", s)
 
 --           `catch`(\(e ::SomeException) -> return $ SError e)
 
@@ -537,7 +538,7 @@ mclose :: Connection -> IO ()
 #ifndef ghcjs_HOST_OS
 
 mclose (Connection _
-   (Just (Node2Node _ h sock )) _ _ _ _ _)= hClose h
+   (Just (Node2Node _  sock )) _ _ _ _ _)= NS.sClose sock
 
 mclose (Connection node
    (Just (Node2Web sconn ))
@@ -576,14 +577,14 @@ mconnect  node@(Node _ _ _ _ )=  do
 
         conn <- liftIO $ do
           let size=8192
-          h <-  connectTo' size host $ PortNumber $ fromIntegral port   -- !!> ("CONNECTING "++ show port)
-          hSetBuffering h $ BlockBuffering $ Just size
+          sock <-  connectTo' size host $ PortNumber $ fromIntegral port   -- !!> ("CONNECTING "++ show port)
 
-          let conn= (defConnection 8100){myNode= my,comEvent= ev,connData= Just $ Node2Node u h u}
-          hPutStrLn   h "LOG a b"
-          hPutStrLn   h ""
+          let conn= (defConnection 8100){myNode= my,comEvent= ev,connData= Just $ Node2Node u  sock}
+          SBS.send sock "CLOS a b"
+          SBS.send sock "\n\n"
 
           return conn
+
 #else
         conn <- do
           ws <- connectToWS host $ PortNumber $ fromIntegral port
@@ -619,8 +620,8 @@ connectTo' bufSize hostname (PortNumber port) =  do
               NS.setSocketOption sock NS.SendBuffer bufSize
               he <- BSD.getHostByName hostname
               NS.connect sock (NS.SockAddrInet port (BSD.hostAddress he))
-
-              NS.socketToHandle sock ReadWriteMode
+              return sock
+--              NS.socketToHandle sock ReadWriteMode
             )
 #else
 connectToWS  h (PortNumber p) =
@@ -642,7 +643,7 @@ type BuffSize = Int
 data ConnectionData=
 #ifndef ghcjs_HOST_OS
                    Node2Node{port :: PortID
-                              ,handle :: Handle
+
                               ,socket ::Socket
                                    }
 
@@ -671,7 +672,7 @@ data Connection= Connection{myNode :: Node
 -- Internally, the mailbox is in a well known EVar stored by `listen` in the `Connection` state.
 newMailbox :: T.Text -> TransIO ()
 newMailbox name= do  -- liftIO $ replicateM  10 (randomRIO ('a','z'))
-   return () !> "newMailBox"
+   return () -- !> "newMailBox"
    Connection{comEvent= mv} <- getData `onNothing` errorMailBox
    onFinish . const $ liftIO $ do print "newMailbox finisn" ; atomicModifyIORef mv $ \mailboxes ->   (M.delete name  mailboxes,())
    ev <- newEVar
@@ -703,7 +704,7 @@ getMailbox name= do
      Nothing ->newMailbox name >> getMailbox name
      Just ev ->do
           d <- readEVar ev
-          case fromDynamic d  !> "getMailBox" of
+          case fromDynamic d of  -- !> "getMailBox" of
              Nothing -> empty
              Just x -> return x
 
@@ -758,66 +759,7 @@ cleanMailbox name witness= do
      Just ev -> do cleanEVar ev
                    liftIO $ atomicModifyIORef mv $ \mbs -> (M.delete name mbs,())
 
---Transient $ do
---   Connection{comEvent=(EVar id rn ref1) }<- getData
---          `onNothing` error "sendNodeEvent: accessing network events out of listen"
---   runTrans $ liftIO $ atomically $ do
---        readTVar rn >>= \(n,n') -> writeTVar rn $ (n -1, n'-1)
---        writeTChan  ref1 $ SMore $ toDyn ( name,Nothing `asTypeOf` Just witness)
 
-
----- | updates the local mailbox.
---sendNodeEvent :: Typeable a => a -> TransIO ()
---sendNodeEvent dat=  Transient $ do
---   Connection{comEvent=comEvent}<- getData
---          `onNothing` error "sendNodeEvent: accessing network events out of listen"
---   (runTrans $  writeEVar comEvent $ toDyn dat)  -- !> "PUTMAILBOXX"
-
-
--- | wait until a message of the type expected appears in the mailbox. Then executes the continuation
--- When the message appears, all the waiting `waitNodeEvents` are executed from newer to the older
--- following the `readEVar` order.
---waitNodeEvents :: Typeable a => TransIO a
---waitNodeEvents = Transient $  do
---       Connection{comEvent=(EVar id rn ref1)} <- getData `onNothing` error "waitNodeEvents: accessing network events out of listen"
---       runTrans  $ do
-----                     d <-  readEVar comEvent
-----                     case fromDynamic d of
-----                      Nothing -> empty
-----                      Just x ->  return x
---         liftIO $ atomically $ readTVar rn >>= \(n,n') ->  writeTVar rn $ (n+1,n'+1)
---         r <- parallel $ atomically $ do
---                    (n,n') <- readTVar rn
---
---                    r <- if n'> 1  then do
---                               r <- peekTChan ref1
---                               writeTVar rn (n,n'-1)
---                               return r
---                             else  do
---                               r <- readTChan ref1
---                               writeTVar rn (n,n)
---                               return r
---                    case r of
---
---                        SMore d -> case fromDynamic d of
---                                      Nothing -> retry
---                                      Just x ->  return $ SMore x
---                        SError e -> return $ SError e
---                        SDone -> return SDone
-----                        elsee -> return elsee
---
---         case r of
---            SDone -> empty
---            SMore x -> return x
---
---            SError e -> error $ show e
---
---
---
----- | delete all the event watchers of the node
---cleanNodeEvents=Transient $  do
---       Connection{comEvent=comEvent} <- getData `onNothing` error "waitNodeEvents: accessing network events out of listen"
---       runTrans  $ cleanEVar comEvent
 
 
 
@@ -842,12 +784,12 @@ setBuffSize size= Transient $ do
 getBuffSize=
   (do getSData >>= return . bufferSize) <|> return  8192
 
-readHandler h= do
-    line <- hGetLine h
---    return ()                             !> ("socket read",line) !> "------<---------------<----------<"
-    let [(v,left)] = readsPrec' 0 line
-    return  v
---   `catch` (\(e::SomeException) ->  return $ SError e)
+--readHandler h= do
+--    line <- hGetLine h
+----    return ()                             !> ("socket read",line) !> "------<---------------<----------<"
+--    let [(v,left)] = readsPrec' 0 line
+--    return  v
+----   `catch` (\(e::SomeException) ->  return $ SError e)
 
 
 
@@ -880,40 +822,39 @@ listenNew port conn= do --  node bufSize events blocked port= do
                NS.setSocketOption sock NS.SendBuffer bufSize
 
 
-   st <- getCont
-   (sock,addr) <- waitEvents $  NS.accept sock         -- !!> "BEFORE ACCEPT"
+   (sock,addr) <- waitEvents $ NS.accept sock         -- !!> "BEFORE ACCEPT"
+
+
 --   case addr of
 --     NS.SockAddrInet port host -> liftIO $ print("connection from", port, host)
---     NS.SockAddrInet6  a b c d ->
---                                    liftIO $ print("connection from", a, b,c,d)
-
-   h <- liftIO $ NS.socketToHandle sock ReadWriteMode      -- !!> "NEW SOCKET CONNECTION"
+--     NS.SockAddrInet6  a b c d -> liftIO $ print("connection from", a, b,c,d)
 
 
-   onFinish $ const $ do
-             let Connection{closures=closures}= conn !> "listenNew closures empty"
-             liftIO $ modifyMVar_ closures $ const $ return M.empty
+
+--   onFinish $ const $ do
+--             let Connection{closures=closures}= conn !> "listenNew closures empty"
+--             liftIO $ modifyMVar_ closures $ const $ return M.empty
 
 
-   (method,uri, headers) <- receiveHTTPHead h
+   (method,uri, headers) <- receiveHTTPHead sock
 
    case method of
-     "LOG" ->
+     "CLOS" ->
           do
-           setData $ conn{connData=Just (Node2Node (PortNumber port) h sock )}
---           setData $ Connection node  (Just (Node2Node (PortNumber port) h sock ))
---                         bufSize events blocked False True 0
-           killOnFinish $ parallel $ readHandler  h        -- !> "read Listen"  -- :: TransIO (StreamData [LogElem])
+
+           setData $ conn{connData=Just (Node2Node (PortNumber port) sock )}
+
+--           killOnFinish $ parallel $ readHandler          -- !> "read Listen"  -- :: TransIO (StreamData [LogElem])
+           parallelReadHandler
 
      _ -> do
-           sconn <- httpMode (method,uri, headers) sock
+           sconn <- httpMode (method,uri, headers) sock -- stay serving pages until a websocket request is received
 
            setData conn{connData= Just (Node2Web sconn )}
 
---           setData $ (Connection node  (Just (Node2Web sconn ))
---                         bufSize events blocked False True 0 :: Connection)
 
-           killOnFinish $ parallel $ do
+--           killOnFinish $ parallel $ do
+           parallel $ do
                msg <- WS.receiveData sconn             -- WebSockets
                return . read $ BC.unpack msg
 --                                                      !> ("Server WebSocket msg read",msg)  !> "<-------<---------<--------------"
@@ -937,7 +878,11 @@ listenResponses= do
 
       (conn, node) <- getMailbox "connections"
       setData conn
-
+#ifndef ghcjs_HOST_OS
+      case conn of
+             Connection _(Just (Node2Node _ sock)) _ _ _ _ _ ->
+                 setData $ (ParseContext (giveData sock) "" :: ParseContext ByteString)
+#endif
 
       onFinish $ const $ do
 --           plist <- liftIO $ readMVar pool
@@ -958,6 +903,7 @@ listenResponses= do
 type IdClosure= Int
 
 data Closure= Closure IdClosure
+
 checkLog mlog = Transient $ do
        case  mlog    of                       -- !> ("RECEIVED ", mlog ) of
              SError e -> do
@@ -1232,6 +1178,7 @@ connect'  remotenode= do
 
 #ifndef ghcjs_HOST_OS
 httpMode (method,uri, headers) conn  = do
+   return ()                        -- !> ("HTTP request",method,uri, headers)
    if isWebSocketsReq headers
      then  liftIO $ do
 
@@ -1264,11 +1211,12 @@ httpMode (method,uri, headers) conn  = do
               file= if BC.null uri' then "index.html" else uri'
 
           content <- liftIO $  BL.readFile ( "./static/out.jsexe/"++ BC.unpack file)
-                            `catch` (\(e:: SomeException) -> return  "Index.html NOT FOUND")
-          return ()
+                            `catch` (\(e:: SomeException) -> return  "Not found file: Index.html")
+
           n <- liftIO $ SBS.sendMany conn   $  ["HTTP/1.0 200 OK\nContent-Type: text/html\nConnection: close\nContent-Length: " <> BC.pack (show $ BL.length content) <>"\n\n"] ++
                                   (BL.toChunks content )
-          return ()    -- !> "HTTP sent"
+
+
           empty
 
       where
@@ -1281,30 +1229,17 @@ isWebSocketsReq = not  . null
 
 
 
-data ParseContext a = ParseContext (IO  a) a deriving Typeable
+data ParseContext a = IsString a => ParseContext (IO  a) a deriving Typeable
 
 
---giveData h= do
---    r <- BC.hGetLine h
---    return r !> ( "RECEIVED "++ show r)
-
-giveData h= do
-
-   r <- readIORef rend
-
-   if r then return "" else do
-    r<- BC.hGetLine h                    -- !!> "GETLINE"
-
-    if r=="\r" || r == "" then do
-       writeIORef rend True
-       return ""
-       else return r
-  where
-  rend= unsafePerformIO $ newIORef False
+giveData s= do
+    r <- SBS.recv s      4096
+    return r               -- !> ( "giveData ", r)
 
 
-receiveHTTPHead h = do
-  setData $ ParseContext (giveData h) ""
+receiveHTTPHead s = do
+  return ()
+  setData $ (ParseContext (giveData s) "" ::ParseContext ByteString)
   (method, uri, vers) <- (,,) <$> getMethod <*> getUri <*> getVers
   headers <- many $ (,) <$> (mk <$> getParam) <*> getParamValue    -- !>  (method, uri, vers)
   return (method, uri, headers)                                    -- !>  (method, uri, headers)
@@ -1316,43 +1251,71 @@ receiveHTTPHead h = do
   getVers= getString
   getParam= do
       dropSpaces
-      r <- tTakeWhile (\x -> x /= ':' && x /= '\r')
+      r <- tTakeWhile (\x -> x /= ':' && not (endline x))
       if BC.null r || r=="\r"  then  empty  else  dropChar >> return r
 
-  getParamValue= dropSpaces >> tTakeWhile  (/= '\r')
+  getParamValue= dropSpaces >> tTakeWhile  (\x -> not (endline x))
 
-  dropSpaces= parse $ \str ->((),BC.dropWhile isSpace str)
 
-  dropChar= parse  $ \r -> ((), BC.tail r)
 
-  getString= do
+
+dropSpaces= parse $ \str ->((),BC.dropWhile isSpace str)
+
+dropChar= parse  $ \r -> ((), BC.tail r)
+
+endline c= c== '\n' || c =='\r'
+
+--tGetLine= tTakeWhile . not . endline
+
+parallelReadHandler :: Loggable a => TransIO (StreamData a)
+parallelReadHandler= do
+      ParseContext readit str <- getSData <|> error "parallelReadHandler: ParseContext not found"
+                                        :: (TransIO (ParseContext ByteString))
+      rbuff <- liftIO $ newIORef str
+      r <- parallel $ do
+                    buff <- readIORef rbuff
+                    str3 <- if  buff /= mempty  then return buff
+                                 else  readit
+                    let  [(v,left)] = readsPrec' 0 $ BC.unpack str3
+                    writeIORef rbuff $ BC.pack left
+                    return v
+      left <- liftIO $ readIORef rbuff
+      setData  $ ParseContext readit left
+      return r
+
+
+
+
+getString= do
     dropSpaces
-
     tTakeWhile (not . isSpace)
 
-  tTakeWhile :: (Char -> Bool) -> TransIO BC.ByteString
-  tTakeWhile cond= parse (BC.span cond)
+tTakeWhile :: (Char -> Bool) -> TransIO BC.ByteString
+tTakeWhile cond= parse (BC.span cond)
 
-  parse :: (Typeable a, Eq a, Show a, Monoid a,Monoid b) => (a -> (b,a)) -> TransIO b
-  parse split= do
-    ParseContext rh str <- getSData <|> error "parse: ParseContext not found"
-    if  str == mempty then do
-          str3 <- liftIO  rh
 
-          setData $ ParseContext rh str3                     -- !> str3
+parse :: Monoid b => (ByteString -> (b,ByteString)) -> TransIO b
+parse split= do
+    ParseContext readit str <- getSData <|> error "parse: ParseContext not found"
+    if  str == mempty
+     then do
+          str3 <- liftIO  readit
 
-          if str3== mempty then empty   else  parse split
+          setData $ ParseContext readit str3                     -- !> str3
 
-       else do
+          if str3== mempty   then empty   else  parse split
+     else if BC.take 2 str =="\n\n"  then do setData $ ParseContext readit  (BC.drop 2 str) ; empty
+     else if BC.take 4 str== "\r\n\r\n" then do setData $ ParseContext readit  (BC.drop 4 str) ; empty
+     else do
 
           cont <- do
              let (ret,str3) = split str
-             setData $ ParseContext rh str3
+             setData $ ParseContext readit str3
              if  str3 == mempty
                 then  return $ Left ret
                 else  return $ Right ret
           case cont of
-            Left r  ->  (<>) <$> return r  <*> (parse split <|> return mempty)
+            Left r  ->  return r  <> (parse split <|> return mempty)
 
             Right r ->   return r
 
