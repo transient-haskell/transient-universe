@@ -41,7 +41,7 @@ addNodes, shuffleNodes,
 
 ) where
 import Transient.Base
-import Transient.Internals(killChildren,getCont,runCont,EventF(..),LogElem(..),Log(..)
+import Transient.Internals((!>),killChildren,getCont,runCont,EventF(..),LogElem(..),Log(..)
        ,onNothing,RemoteStatus(..),getCont,StateIO,readsPrec')
 import Transient.Logged
 import Transient.EVars
@@ -499,21 +499,6 @@ teleport =  do
 
 
 
---   -- save the state of the web rendering variables if needed
---   saveVars= runTrans . runCloud $ do
---     sav <- local $ ((getSData :: TransIO ( Repeat)) >> return True) <|> return False
---     when sav  $ do
---       let copyCounter= do
---               r <- local $ gets mfSequence
---               onAll $ modify $ \s -> s{mfSequence= r}
---
---       copyData $ Prefix ""                -- !> "SAVE"
---       copyData $ IdLine ""
---       copyData  Repeat
---       copyCounter
---
-
-
 -- | copy a session data variable from the local to the remote node.
 -- The parameter is the default value, if there is none set in the local node.
 -- Then the default value is also set in the local node.
@@ -580,8 +565,8 @@ mconnect  node@(Node _ _ _ _ )=  do
           sock <-  connectTo' size host $ PortNumber $ fromIntegral port   -- !!> ("CONNECTING "++ show port)
 
           let conn= (defConnection 8100){myNode= my,comEvent= ev,connData= Just $ Node2Node u  sock}
-          SBS.send sock "CLOS a b"
-          SBS.send sock "\n\n"
+          SBS.send sock "CLOS a b\n\n"   -- !> "sending CLOS"
+
 
           return conn
 
@@ -671,15 +656,26 @@ data Connection= Connection{myNode :: Node
 -- while EVars are only visible by the process that initialized  it and his children.
 -- Internally, the mailbox is in a well known EVar stored by `listen` in the `Connection` state.
 newMailbox :: T.Text -> TransIO ()
-newMailbox name= do  -- liftIO $ replicateM  10 (randomRIO ('a','z'))
-   return () -- !> "newMailBox"
+newMailbox name= do
+   return ()  -- !> "newMailBox"
    Connection{comEvent= mv} <- getData `onNothing` errorMailBox
-   onFinish . const $ liftIO $ do print "newMailbox finisn" ; atomicModifyIORef mv $ \mailboxes ->   (M.delete name  mailboxes,())
+   onFinish . const $ liftIO $ do
+         return ()  !> "NEWMAILBOX finish"
+         mailboxes <- readIORef mv
+         let me = M.lookup name  mailboxes
+         case me of
+             Nothing -> empty    !> "EMPTY"
+             Just (EVar id rn ref1) -> do
+                 n <- atomically $ do
+                      (n,n') <- readTVar rn
+                      writeTVar rn (n-1,n'-1)   !> ("decreased rn",n-1)
+                      return $ n-1
+                 when (n==0) $ atomicModifyIORef mv $ \mboxes -> (M.delete name mboxes,())
    ev <- newEVar
    liftIO $ atomicModifyIORef mv $ \mailboxes ->   (M.insert name ev mailboxes,())
 
 
--- | write tot he mailbox
+-- | write to the mailbox
 putMailbox :: Typeable a => T.Text -> a -> TransIO ()
 putMailbox name dat= do --  sendNodeEvent (name, Just dat)
    Connection{comEvent= mv} <- getData `onNothing` errorMailBox
@@ -830,10 +826,11 @@ listenNew port conn= do --  node bufSize events blocked port= do
 --     NS.SockAddrInet6  a b c d -> liftIO $ print("connection from", a, b,c,d)
 
 
-
---   onFinish $ const $ do
---             let Connection{closures=closures}= conn !> "listenNew closures empty"
---             liftIO $ modifyMVar_ closures $ const $ return M.empty
+   initFinish
+   onFinish $ const $ do
+             return()                                  !> "onFinish closures receivedd with LISTEN"
+             let Connection{closures=closures}= conn  -- !> "listenNew closures empty"
+             liftIO $ modifyMVar_ closures $ const $ return M.empty
 
 
    (method,uri, headers) <- receiveHTTPHead sock
@@ -841,7 +838,7 @@ listenNew port conn= do --  node bufSize events blocked port= do
    case method of
      "CLOS" ->
           do
-
+           return ()                         -- !> "CLOS detected"
            setData $ conn{connData=Just (Node2Node (PortNumber port) sock )}
 
 --           killOnFinish $ parallel $ readHandler          -- !> "read Listen"  -- :: TransIO (StreamData [LogElem])
@@ -853,8 +850,7 @@ listenNew port conn= do --  node bufSize events blocked port= do
            setData conn{connData= Just (Node2Web sconn )}
 
 
---           killOnFinish $ parallel $ do
-           parallel $ do
+           killOnFinish $ parallel $ do
                msg <- WS.receiveData sconn             -- WebSockets
                return . read $ BC.unpack msg
 --                                                      !> ("Server WebSocket msg read",msg)  !> "<-------<---------<--------------"
@@ -883,11 +879,8 @@ listenResponses= do
              Connection _(Just (Node2Node _ sock)) _ _ _ _ _ ->
                  setData $ (ParseContext (giveData sock) "" :: ParseContext ByteString)
 #endif
-
+      initFinish
       onFinish $ const $ do
---           plist <- liftIO $ readMVar pool
---           case plist of
---            [_] -> do
              liftIO $ putStrLn "removing node: ">> print node
              nodes <- getNodes
              setNodes $ nodes \\ [node]
@@ -1155,12 +1148,19 @@ connect'  remotenode= do
 --    newnode <- local $ return node -- must pass my node to the remote node or else it will use his own
 
     nodes' <- runAt remotenode $  do
-                   mclustered $ local $ addNodes nodes
+--                   conn <- onAll getSData <|> error "connect: no connnection data"
+                   let nodeConnecting= head nodes
+                   mclustered . local . addNodes $ nodes -- nodeConnecting{connection= unsafePerformIO (newMVar [conn])} : tail nodes
+                   local . onFinish . const $ do
+                       liftIO $ putStrLn "removing node: ">> print nodeConnecting
+                       nodes <- getNodes
+                       setNodes $ nodes \\ [nodeConnecting]
+
                    local $ do
-                      liftIO $ putStrLn  "New  nodes: " >> print nodes
-                      n <- getNodes
-                      my <- getMyNode
-                      return $ n \\ [my]
+                       liftIO $ putStrLn  "New  nodes: " >> print nodes
+                       n <- getNodes
+                       my <- getMyNode
+                       return $ n \\ [my]
 
     let newNodes = remotenode : nodes'
     let n = newNodes \\ nodes
@@ -1272,7 +1272,7 @@ parallelReadHandler= do
       ParseContext readit str <- getSData <|> error "parallelReadHandler: ParseContext not found"
                                         :: (TransIO (ParseContext ByteString))
       rbuff <- liftIO $ newIORef str
-      r <- parallel $ do
+      r <- killOnFinish $ parallel $ do
                     buff <- readIORef rbuff
                     str3 <- if  buff /= mempty  then return buff
                                  else  readit
@@ -1282,8 +1282,8 @@ parallelReadHandler= do
       left <- liftIO $ readIORef rbuff
       setData  $ ParseContext readit left
       return r
-
-
+--                !> ("readHandler",r)
+--                !> "<-------<----------<--------<----------"
 
 
 getString= do
@@ -1308,16 +1308,13 @@ parse split= do
      else if BC.take 4 str== "\r\n\r\n" then do setData $ ParseContext readit  (BC.drop 4 str) ; empty
      else do
 
-          cont <- do
-             let (ret,str3) = split str
-             setData $ ParseContext readit str3
-             if  str3 == mempty
-                then  return $ Left ret
-                else  return $ Right ret
-          case cont of
-            Left r  ->  return r  <> (parse split <|> return mempty)
+          let (ret,str3) = split str
+          setData $ ParseContext readit str3
 
-            Right r ->   return r
+          if str3== mempty
+            then   return ret  <> (parse split <|> return mempty)
+
+            else   return ret
 
 
 

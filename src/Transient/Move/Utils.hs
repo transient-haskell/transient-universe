@@ -12,7 +12,7 @@
 --
 -----------------------------------------------------------------------------
 
-module Transient.Move.Utils (initNode,inputNodes, simpleWebApp, initWebApp, onServer, onBrowser)
+module Transient.Move.Utils (initNode,inputNodes, simpleWebApp, initWebApp, onServer, onBrowser, runNodes)
  where
 
 import Transient.Base
@@ -20,20 +20,32 @@ import Transient.Move
 import Control.Applicative
 import Control.Monad.IO.Class
 
--- | ask for the port number and initializes a node in the port specified
+-- | ask in the console for the port number and initializes a node in the port specified
 -- It needs the application to be initialized with `keep` to get input from the user.
 -- the port can be entered in the command line with "<program> -p  start/<PORT>"
 --
--- A transient node is also a web server server that send to the browser the program if it has beeen
--- compiled to JavaScript with ghcjs.
+-- A node is also a web server that send to the browser the program if it has been
+-- compiled to JavaScript with ghcjs. `initNode` also initializes the web nodes.
 --
--- This sequence compiles and executes the program with a node in the port 8080
+-- This sequence compiles to JScript and executes the program with a node in the port 8080
 --
 -- > ghc program.hs
 -- > ghcjs program.hs -o static/out
 -- > ./program -p start/8080
 --
--- `initNode` when executed in the browser will perform a `wormhole` to his server node
+-- `initNode`, when the application has been loaded and executed in the browser, will perform a `wormhole` to his server node.
+--  So the application run within this wormhole.
+--
+--  Since the code is executed both in server node and browser node, to avoid confusion and in order
+-- to execute in a single logical thread, use `onServer` for code that you need to execute only in the server
+-- node, and `onBrowser` for code that you need in the browser, although server code could call the browser
+-- and vice-versa.
+--
+-- To invoke from browser to server and vice-versa, use `atRemote`.
+--
+-- To translate the code from the browser to the server node, use `teleport`.
+--
+
 initNode app= do
    port <- getPort
    initWebApp port  app

@@ -20,6 +20,7 @@ import GHCJS.HPlay.View
 import Transient.Move
 import Transient.EVars
 import Transient.Indeterminism
+import Transient.Internals((!>))
 import Control.Applicative
 import qualified Data.Vector as V
 import qualified Data.Map as M
@@ -33,7 +34,7 @@ import qualified Data.JSString as JS hiding (span,empty,strip,words)
 
 
 
-main =  keep $  initNode $  mapReduce <|>  chat  <|> inputNodes
+main =  keep $  initNode  $  mapReduce <|>  chat  <|> inputNodes
 
 
 -- A Web node launch a map-reduce computation in all the server nodes, getting data from a
