@@ -11,20 +11,23 @@
 -- |
 --
 -----------------------------------------------------------------------------
-{-# LANGUAGE OverloadedStrings #-}
+
 module Transient.Move.Services  where
 
 import Transient.Base
 import Transient.Move
-import Transient.Logged
+import Transient.Logged(Loggable(..))
+--import Transient.Internals((!>))
+import Transient.Move.Utils
+import Transient.Internals(Log(..))
 import Transient.EVars
+import Transient.Indeterminism
 import Control.Monad.IO.Class
 import System.Process
 import System.IO.Unsafe
 import Control.Concurrent.MVar
 import Control.Applicative
-import Network (PortID(..))
-import GHC.Conc
+
 import System.Directory
 import Control.Monad
 import Data.List
@@ -34,61 +37,47 @@ import Data.Maybe
 -- for the example
 import System.Environment
 
-startServices :: Cloud ()
-startServices= local $ do
-  node <-  getMyNode
-  liftIO $ print node
-  servs <-  liftIO $ readMVar $ nodeServices node
-  mapM_ start  servs
-  where
-  start (package,program,port)= liftIO $ do
-          let prog= pathExe (name package) program port
-          liftIO $ print prog
-          createProcess $ shell prog
+--startServices :: Cloud ()
+--startServices= local $ do
+--  node <-  getMyNode
+--  liftIO $ print node
+--  let servs =   nodeServices node
+--  mapM_ start  servs
+--  where
+--  start (package,program)= liftIO $ do
+--          let prog= pathExe (name package) program port
+--          liftIO $ print prog
+--          createProcess $ shell prog
 
 
 pathExe package program port= package++"/dist/build/"++package++"/"++program
-                                       ++ " " ++ show port
+                                       ++ " -p start/" ++ show port
 
 install :: String  -> String -> Int -> Cloud ()
 install package program port =  do
      let packagename = name package
-     exist <-  local $ liftIO $ doesDirectoryExist  packagename
+     when (null packagename) $ error $ "source for \""++package ++ "\" not found"
+     exist <- local $ liftIO $ doesDirectoryExist  packagename
      when (not exist) $ local $ liftIO $ do
          callProcess  "git" ["clone",package]
          liftIO $ print "GIT DONE"
          setCurrentDirectory packagename
-         callProcess  "cabal" ["install"]
+         callProcess  "cabal" ["install","--force-reinstalls"]
          setCurrentDirectory ".."
          return()
-     let prog= pathExe packagename program port
+     let prog = pathExe packagename program port
+     lliftIO $ print prog
      local $ liftIO $ do
            createProcess $ shell program
            return ()
 
-     let service= (package, program,  port)
-
-     Connection{myNode=Node{nodeServices=rservs}} <- onAll getSData <|> error "Mynode not set: use setMyNode"
-     lliftIO $ modifyMVar_  rservs $ \servs ->  return$ service:servs
-     node <-  onAll getMyNode
-     notifyService node service
      return()
 
-name url= do
-     let git= "http://github.com/"
-     if not $ isPrefixOf git url
-       then error "install: only github repos are admitted, sorry"
-       else
-        let segments = split '/' $ drop (length git) url
-            segs'= reverse segments
-        in  head  segs'
-
-
-     where
-     split c []= []
-     split c xs=
-        let (h,t)= span  (/= c) xs
-        in  if null t then [h] else h : split c  (tail t)
+name url=  slash . slash . slash $ slash url
+  where
+  slash= tail1 . dropWhile (/='/')
+  tail1 []=[]
+  tail1 x= tail x
 
 rfreePort :: MVar Int
 rfreePort = unsafePerformIO $ newMVar  3000
@@ -96,55 +85,117 @@ rfreePort = unsafePerformIO $ newMVar  3000
 freePort :: MonadIO m => m Int
 freePort= liftIO $ modifyMVar rfreePort $ \ n -> return (n+1,n)
 
-initService node package program= loggedc $ do
-    services <- onAll $ liftIO $ readMVar $ nodeServices node
-    case   find  (\(package', program',_) -> package==package' && program== program') $ services  of
-       Just (_,_,port) -> return port
+initService ident service@(package, program)= loggedc $ do
+    nodes <- local getNodes
+    case find (\node  -> service `elem` nodeServices node) nodes  of
+       Just node -> return node
        Nothing -> do
-            beamTo node
-            port <- onAll freePort
-            install package program  port
-            empty
-          <|> do
-            Connection{comEvent=ev} <- onAll getSData
-            (node', (package', program',port)) <- local $ getMailbox "services"
-            if node'== node && package' == package && program'== program
-                 then return port
-                 else empty
 
-notifyService :: Node -> Service -> Cloud ()
-notifyService node service=  clustered $ do
-     onAll . liftIO $  do
-        nodes <- atomically $ readTVar nodeList
+          nodes <- callOne $ do
+                    yn<- requestService ident service
+                    if yn then do
+                        port <- onAll freePort
+                        install package program  port
+                        nodeService port
+                      else empty
+          local $ addNodes nodes
+          return $ head nodes
+    where
+    nodeService port= local $ do
+       Node h _ _ _ <- getMyNode
+       return $ Node h port (unsafePerformIO $ newMVar []) [service] :: TransIO Node
 
-        let nod = fromMaybe (error $ "node not found :" ++  show node) $ find (== node) nodes :: Node
-        modifyMVar_ (nodeServices nod) $ \servs -> return $ service:servs
-        return ()
 
-     local $ putMailbox "services" (node,service)
-     return ()
+
+callOne mx= local . collect 1 . runCloud $ clustered mx
+
+rfriends        =   unsafePerformIO $ newMVar []
+rservices       =   unsafePerformIO $ newMVar []
+ridentsBanned    =   unsafePerformIO $ newMVar []
+rServicesBanned =   unsafePerformIO $ newMVar []
+
+requestService ident service= local $  do
+
+     friends            <- liftIO $ readMVar rfriends
+     services           <- liftIO $ readMVar rservices
+     identsBanned       <- liftIO $ readMVar ridentsBanned
+     servicesBanned     <- liftIO $ readMVar rServicesBanned
+
+     return $ if (null friends || ident `elem` friends)
+        && (null services || service `elem` services)
+        && (null identsBanned || ident `notElem` identsBanned)
+        && (null servicesBanned || service `notElem` servicesBanned)
+      then True else False
+  where
+  notElem a b= not $ elem a b
+
+
+callService
+    :: (Loggable a, Loggable witness)
+    => String -> Service -> a -> witness -> Cloud witness
+callService ident service params witness= do
+    node <-  initService ident service
+    log <- onAll $ do
+           log  <- getSData <|> return emptyLog
+           setData emptyLog
+           return log
+
+    r <- wormhole node $ loggedc $ do
+             local $ return params
+
+             teleport
+             local empty
+--    return () !> ("r=",r)
+    restoreLog log
+--    local $ do
+--       Log _ _ log <- getSData <|> return emptyLog
+--       return() !> ("log after",log)
+    return (r `asTypeOf` witness)
+    where
+    restoreLog (Log _ _ logw)= onAll $ do
+       Log _ _ logw' <- getSData <|> return emptyLog
+
+       let newlog= reverse logw' ++ logw
+--       return ()                 !> ("newlog", logw,logw')
+       setData $ Log False newlog newlog
+
+    emptyLog= Log False [] []
+
 
 {-
-main= do
---      keep $ install "http://github.com/agocorona/transient" "MainStreamFiles"  3000
-    let node1= createNode "localhost" 2000
-    let node2= createNode "localhost" 2001
-    args <-getArgs
-    let [localNode,remoteNode]= if null args then [node1,node2] else [node2,node1]
+servicios
+      autoinstall service
+      servicio de instalaci¢n de servicios
+  procedurers call services, services install themselves in nodes.
+     clustered oriented call invoke the nodes that shares the same service.
+        if the service variable state is set. if not, invoke all the nodes.
 
+  some service accessing data may move to the machine where the data is if support the service.
 
-    runCloudIO $ do
-      onAll $ addNodes [localNode, remoteNode]
-      onAll $ setMyNode localNode
-      listen localNode <|> return ()
-      local $ option "start" "start"
+  servicio en browser necesita algo que en el server no existe y no pude dar:
+     forward the request to other nodes
+     return the result to the browser.
+  forward service requests:
+     cuando un nodo no puede servir un servicio, puede hacer forward.
+        otros nodos puede instalarlo o hacer forward a su vez
 
-      startServices
-      port <-initService remoteNode "http://github.com/agocorona/transient" "MainStreamFiles"
-      onAll . liftIO $ putStrLn $ "installed at" ++ show port
+  clusterizaci¢n de servicios
+   nodo con database saturado puede hacer automatic sharding
+     siquientes requests retornan los nuevos nodos
+  la resupuesta de un servicio puede incluir una nueva direcci¢n, del nodo donde se ha movido o donde ha delegado.
+
+  servicio wrarpper que ejecuta una libreria no transient
+
+  cat logo de servicios
+  ghcjsi service for notebooks
+
+  web site de compilaci¢n que compile en su propio ordenador
+     opcion descargar el programa de instalacion y hace stack build
+     ventaja: conectar todos los nodos que ejecutan un servicio determinado
+       necesario un deposito de nombres de servicios:: github
+
+  friend ident.... request you to install... in your computer. Do you agree?
+   if ident is the same, this is automatic.
 -}
-
-
-
 
 

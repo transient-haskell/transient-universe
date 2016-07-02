@@ -12,7 +12,8 @@
 --
 -----------------------------------------------------------------------------
 
-module Transient.Move.Utils (initNode,inputNodes, simpleWebApp, initWebApp, onServer, onBrowser, runNodes)
+module Transient.Move.Utils (initNode,inputNodes, simpleWebApp, initWebApp
+, onServer, onBrowser, runNodes)
  where
 
 import Transient.Base
@@ -73,7 +74,7 @@ inputNodes= do
           port <-  local $ input (const True) "port?"
 
           connectit <- local $ input (\x -> x=="y" || x== "n") "connect to get his list of nodes?"
-          let nnode= createNode host port
+          let nnode= createNode host port []
           if connectit== "y" then connect'  nnode
                              else local $ addNodes [nnode]
    empty
@@ -103,7 +104,9 @@ simpleWebApp port app =  keep $ initWebApp port app
 -- initialization of the web server. Otherwise, the behaviour is the same.
 initWebApp :: Integer -> Cloud () -> TransIO ()
 initWebApp port app=  do
-    serverNode  <- liftIO $ getWebServerNode port
+    let conn= defConnection 8192
+    setData $ conn{myNode= createNode "localhost" port []}
+    serverNode  <-  getWebServerNode  :: TransIO Node
 
     let mynode = if isBrowserInstance
                     then createWebNode
@@ -130,7 +133,7 @@ onServer x= do
 -- | run N nodes (N ports to listen) in the same program. For testing purposes.
 -- It add them to the list of known nodes, so it is possible to perform `clustered` operations with them.
 runNodes ports= do
-    let nodes=  map (createNode "localhost") ports
+    let nodes=  map (\p -> createNode "localhost" p []) ports
     onAll $ addNodes nodes
     foldl (<|>) empty (map listen nodes) <|> return()
 

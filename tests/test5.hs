@@ -2,6 +2,7 @@ module Main where
 
 import Transient.Move
 import Transient.Move.Utils
+import           GHCJS.HPlay.View
 import Transient.Logged
 import Transient.Base
 import Transient.Indeterminism
@@ -27,15 +28,16 @@ import Data.List((\\))
 
 
 -- to be executed with two or more nodes
-main = keep $ initNode $ inputNodes <|> test
+main = keep $ initNode $  test
 
 
-test= do
-        local $ option "exec" "exec"
-        nodes <- local getNodes
-        when (length nodes >1)$ do
-           runAt (nodes !! 1) $ lliftIO $ print "hello"
-           lliftIO $ print "world"
+test= onBrowser $ do
+        local . render $ wlink () $ p "Product Categories"
+        r <- local . render $
+            (,) <$> inputString Nothing `fire` OnChange
+                <*> inputInt Nothing `fire` OnChange
+
+        lliftIO $ print r
 
 
 

@@ -37,11 +37,12 @@ addNodes, shuffleNodes,
 
  getWebServerNode, Node(..), nodeList, Connection(..), Service(),
  isBrowserInstance, Prefix(..), addPrefix
+ ,defConnection
 
 
 ) where
 import Transient.Base
-import Transient.Internals((!>),killChildren,getCont,runCont,EventF(..),LogElem(..),Log(..)
+import Transient.Internals(killChildren,getCont,runCont,EventF(..),LogElem(..),Log(..)
        ,onNothing,RemoteStatus(..),getCont,StateIO,readsPrec')
 import Transient.Logged
 import Transient.EVars
@@ -121,7 +122,7 @@ newtype PortID = PortNumber Int deriving (Read, Show, Eq, Typeable)
 data Node= Node{ nodeHost   :: HostName
                , nodePort   :: Int
                , connection :: MVar Pool
-               , nodeServices   :: MVar [Service]
+               , nodeServices   :: [Service]
                }
 
          deriving (Typeable)
@@ -277,6 +278,8 @@ msend (Connection _ (Just (Web2Node sconn)) _ _ blocked _  _) r= liftIO $
 msend (Connection _ Nothing _ _  _ _ _ ) _= error "msend out of wormhole context"
 
 mread :: Loggable a => Connection -> TransIO (StreamData a)
+
+
 #ifdef ghcjs_HOST_OS
 
 
@@ -350,10 +353,15 @@ foreign import javascript safe
     "$1.onmessage =$2;"
    js_onmessage :: WebSocket  -> JSVal  -> IO ()
 
-getWebServerNode _=
 
-    createNode  <$> ( fromJSValUnchecked js_hostname)
+getWebServerNode :: TransIO Node
+getWebServerNode = liftIO $
+
+   createNode   <$> ( fromJSValUnchecked js_hostname)
                 <*> (fromIntegral <$> (fromJSValUnchecked js_port :: IO Int))
+                <*> (return [])
+
+
 
 hsonmessage ::WebSocket -> (MessageEvent ->IO()) -> IO ()
 hsonmessage ws hscb= do
@@ -388,11 +396,12 @@ mread (Connection _(Just (Node2Node _ _)) _ _ blocked _ _ ) =  parallelReadHandl
 mread (Connection node  (Just (Node2Web sconn )) bufSize events blocked _ _)=
         parallel $ do
             s <- WS.receiveData sconn
-            return . read' $  BS.unpack s         -- !>  ("WS MREAD RECEIVED ---->", s)
+            return . read' $  BS.unpack s
+--                 !>  ("WS MREAD RECEIVED ---->", s)
 
 --           `catch`(\(e ::SomeException) -> return $ SError e)
 
-getWebServerNode port= return $ createNode "localhost" port
+getWebServerNode = getMyNode
 #endif
 
 read' s= case readsPrec' 0 s of
@@ -554,7 +563,7 @@ mconnect  node@(Node _ _ _ _ )=  do
                   return  handle                        -- !>   "REUSED!"
 
       _ -> do
-        liftIO $ putStr "*****CONNECTING NODE: " >> print node
+--        liftIO $ putStr "*****CONNECTING NODE: " >> print node
         my <- getMyNode
 --        liftIO  $ putStr "OPENING CONNECTION WITH :" >> print port
         Connection{comEvent= ev} <- getSData <|> error "connect: listen not set for this node"
@@ -660,15 +669,15 @@ newMailbox name= do
    return ()  -- !> "newMailBox"
    Connection{comEvent= mv} <- getData `onNothing` errorMailBox
    onFinish . const $ liftIO $ do
-         return ()  !> "NEWMAILBOX finish"
+         return ()                        --  !> "NEWMAILBOX finish"
          mailboxes <- readIORef mv
          let me = M.lookup name  mailboxes
          case me of
-             Nothing -> empty    !> "EMPTY"
+             Nothing -> empty             -- !> "EMPTY"
              Just (EVar id rn ref1) -> do
                  n <- atomically $ do
                       (n,n') <- readTVar rn
-                      writeTVar rn (n-1,n'-1)   !> ("decreased rn",n-1)
+                      writeTVar rn (n-1,n'-1)        -- !> ("decreased rn",n-1)
                       return $ n-1
                  when (n==0) $ atomicModifyIORef mv $ \mboxes -> (M.delete name mboxes,())
    ev <- newEVar
@@ -763,7 +772,7 @@ defConnection :: Int -> Connection
 
 -- #ifndef ghcjs_HOST_OS
 defConnection size=
- Connection (createNode "program" 0) Nothing  size
+ Connection (createNode "program" 0 []) Nothing  size
                  (error "defConnection: accessing network events out of listen")
                  (unsafePerformIO $ newMVar ())
                  False (unsafePerformIO $ newMVar M.empty)
@@ -828,7 +837,7 @@ listenNew port conn= do --  node bufSize events blocked port= do
 
    initFinish
    onFinish $ const $ do
-             return()                                  !> "onFinish closures receivedd with LISTEN"
+             return()                                 -- !> "onFinish closures receivedd with LISTEN"
              let Connection{closures=closures}= conn  -- !> "listenNew closures empty"
              liftIO $ modifyMVar_ closures $ const $ return M.empty
 
@@ -950,7 +959,7 @@ listen node = onAll $ do
 type Pool= [Connection]
 type Package= String
 type Program= String
-type Service= (Package, Program, Int)
+type Service= (Package, Program)
 
 
 -- * Level 2: connections node lists and operations with the node list
@@ -960,13 +969,13 @@ type Service= (Package, Program, Int)
 emptyPool :: MonadIO m => m (MVar Pool)
 emptyPool= liftIO $ newMVar  []
 
-createNode :: HostName -> Integer -> Node
-createNode h p= Node h ( fromInteger p) (unsafePerformIO emptyPool)
-                 ( unsafePerformIO $ newMVar [])
+createNode :: HostName -> Integer -> [Service] -> Node
+createNode h p svs= Node h ( fromInteger p) (unsafePerformIO emptyPool) svs
 
 
+createWebNode :: Node
 createWebNode= Node "webnode" ( fromInteger 0) (unsafePerformIO emptyPool)
-                 ( unsafePerformIO $ newMVar [("webnode","",0)])
+                      [("webnode","")]
 
 
 instance Eq Node where
@@ -974,7 +983,7 @@ instance Eq Node where
 
 
 instance Show Node where
-    show (Node h p _ servs )= show (h,p,unsafePerformIO $ readMVar servs)
+    show (Node h p _ servs )= show (h,p, servs)
 
 
 instance Read Node where
@@ -984,7 +993,7 @@ instance Read Node where
           in case r of
             [] -> []
             [((h,p,ss),s')] ->  [(Node h p empty
-              (unsafePerformIO $ newMVar ss),s')]
+              ( ss),s')]
           where
           empty= unsafePerformIO  emptyPool
 
@@ -1109,29 +1118,22 @@ shuffleNodes=  liftIO . atomically $ do
 -- >    where
 -- >    createLocalNode n= createNode "localhost" (PortNumber n)
 clustered :: Loggable a  => Cloud a -> Cloud a
-clustered proc= loggedc $ do
-    nodes <-  local getNodes
-
-    let nodes' = filter (not . isWebNode) nodes
-    foldr (<|>) empty $ map (\node -> runAt node proc) nodes'  -- !> ("clustered",nodes')
-    where
-    isWebNode Node {nodeServices=srvs}
-         | ("webnode","",0) `elem` (unsafePerformIO $ readMVar srvs)= True
-         | otherwise = False
+clustered proc= callNodes (<|>) empty proc
 
 
 -- A variant of `clustered` that wait for all the responses and `mappend` them
 mclustered :: (Monoid a, Loggable a)  => Cloud a -> Cloud a
-mclustered proc= loggedc $ do
+mclustered proc= callNodes (<>) mempty proc
+
+
+callNodes op init proc= loggedc $ do
     nodes <-  local getNodes
     let nodes' = filter (not . isWebNode) nodes
-    foldr (<>) mempty $ map (\node -> runAt node proc) nodes'  -- !> ("mclustered",nodes')
+    foldr op init $ map (\node -> runAt node proc) nodes'  -- !> ("mclustered",nodes')
     where
     isWebNode Node {nodeServices=srvs}
-         | ("webnode","",0) `elem` (unsafePerformIO $ readMVar srvs)= True
+         | ("webnode","") `elem` srvs = True
          | otherwise = False
-
-
 
 -- | set the rest of the computation as a new node (first parameter) and connect it
 -- to an existing node (second parameter). then it uses `connect`` to synchronize the list of nodes
@@ -1211,7 +1213,8 @@ httpMode (method,uri, headers) conn  = do
               file= if BC.null uri' then "index.html" else uri'
 
           content <- liftIO $  BL.readFile ( "./static/out.jsexe/"++ BC.unpack file)
-                            `catch` (\(e:: SomeException) -> return  "Not found file: Index.html")
+                            `catch` (\(e:: SomeException) ->
+                                return  "Not found file: Index.html<br/> please compile with ghcjs<br/> ghcjs program.hs -o static/out")
 
           n <- liftIO $ SBS.sendMany conn   $  ["HTTP/1.0 200 OK\nContent-Type: text/html\nConnection: close\nContent-Length: " <> BC.pack (show $ BL.length content) <>"\n\n"] ++
                                   (BL.toChunks content )

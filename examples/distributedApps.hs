@@ -1,4 +1,4 @@
-{-# LANGUAGE   CPP   #-}
+{-# LANGUAGE   CPP,NoMonomorphismRestriction  #-}
 
 module Main where
 
@@ -47,8 +47,9 @@ mapReduce= onBrowser $ do
                                        ! atr "rows"  (fs "4")
                                        ! atr "cols"  (fs "80")
 
+
                      <++  br
-                     <** inputSubmit "send" `fire` OnClick
+                     <** inputSubmit "send"  `fire` OnClick
                      <++  br
 
     r <- atRemote $ do
@@ -70,7 +71,7 @@ fs= fromString
 
 chat=  onBrowser $  do
 
-    let chatMessages= T.pack "chatMessages"
+    let chatMessages= fs "chatMessages"
 
     local . render . rawHtml $ div ! id (fs "chatbox")
                                    ! style (fs "margin-top:1cm;overflow: auto;height: 200px;background-color: #FFCC99; max-height: 200px;")
