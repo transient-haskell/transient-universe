@@ -24,7 +24,7 @@ library
             base >4 && <5,
             mtl -any,
             random -any,
-            transient -any,
+            transient >= 0.4,
             containers -any,
             stm -any,
             transformers -any,
@@ -36,10 +36,10 @@ library
             text -any
     else
         build-depends:
-            base >4 && <5,
+            base > 4  &&  < 5,
             mtl -any,
             random -any,
-            transient -any,
+            transient >= 0.4,
             containers -any,
             directory -any,
             filepath -any,
