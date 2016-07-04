@@ -19,20 +19,19 @@ source-repository head
 library
 
     if impl(ghcjs >=0.1)
-        build-depends:,
-                      base         > 4  &&  < 5,
-                      bytestring   -any,
-                      containers   -any,
-                      ghcjs-base   -any,
-                      ghcjs-prim   -any,
-                      mtl          -any,
-                      process      -any,
-                      random       -any,
-                      stm          -any,
-                      text         -any,
-                      time         -any,
-                      transformers -any,
-                      transient    >= 0.4
+        build-depends: base         > 4  &&  < 5
+                     , bytestring   -any
+                     , containers   -any
+                     , ghcjs-base   -any
+                     , ghcjs-prim   -any
+                     , mtl          -any
+                     , process      -any
+                     , random       -any
+                     , stm          -any
+                     , text         -any
+                     , time         -any
+                     , transformers -any
+                     , transient    >= 0.4
     else
         build-depends:
                         HTTP             -any
