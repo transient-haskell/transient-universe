@@ -1,15 +1,14 @@
 name: transient-universe
-version: 0.3
+version: 0.3.1
 cabal-version: >=1.10
 build-type: Simple
-license: GPL-3
+license: MIT
 license-file: LICENSE
 maintainer: agocorona@gmail.com
 homepage: http://www.fpcomplete.com/user/agocorona
 bug-reports: https://github.com/agocorona/transient/issues
-synopsis: remote execution and map-reduce: distributed computing for transient
-description:
-    see <http://github.com/agocorona/transient>
+synopsis: Remote execution and map-reduce: distributed computing for Transient
+description: See <http://github.com/agocorona/transient>.
 category: Control
 author: Alberto G. Corona
 
@@ -18,56 +17,40 @@ source-repository head
     location: https://github.com/agocorona/transient-universe
 
 library
-
+    build-depends: base          > 4  &&  < 5
+                 , bytestring    -any
+                 , containers    -any
+                 , mtl           -any
+                 , process       -any
+                 , random        -any
+                 , stm           -any
+                 , text          -any
+                 , time          -any
+                 , transformers  -any
+                 , transient     >= 0.4
     if impl(ghcjs >=0.1)
-        build-depends:
-            base >4 && <5,
-            mtl -any,
-            random -any,
-            transient -any,
-            containers -any,
-            stm -any,
-            transformers -any,
-            process -any,
-            bytestring -any,
-            time -any,
-            ghcjs-base -any,
-            ghcjs-prim -any,
-            text -any
+        build-depends: ghcjs-base   -any
+                     , ghcjs-prim   -any
     else
-        build-depends:
-            base >4 && <5,
-            mtl -any,
-            random -any,
-            transient -any,
-            containers -any,
-            directory -any,
-            filepath -any,
-            stm -any,
-            HTTP -any,
-            network -any,
-            transformers -any,
-            process -any,
-            network-info -any,
-            bytestring -any,
-            time -any,
-            vector -any,
-            TCache -any,
-            websockets -any,
-            network-uri -any,
-            case-insensitive -any,
-            hashable -any,
-            text -any
+        build-depends:  HTTP             -any
+                      , TCache           -any
+                      , case-insensitive -any
+                      , directory        -any
+                      , filepath         -any
+                      , hashable         -any
+                      , network          -any
+                      , network-info     -any
+                      , network-uri      -any
+                      , vector           -any
+                      , websockets       -any
 
-    if !impl(ghcjs >=0.1)
-        exposed-modules:
-            Transient.Move.Services
     exposed-modules:
         Transient.Move
         Transient.MapReduce
         Transient.Move.Utils
+    if !impl(ghcjs >=0.1)
+        exposed-modules:
+            Transient.Move.Services
+
     default-language: Haskell2010
     hs-source-dirs: src .
-    other-modules:
-
-
