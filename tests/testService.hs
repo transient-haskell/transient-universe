@@ -2,8 +2,10 @@
 
 
 import Transient.Base
+import Transient.Internals((!>))
 import Transient.Move
 import Transient.Move.Utils
+import Transient.Logged
 import Transient.Move.Services
 import Control.Applicative
 import Control.Monad
@@ -12,40 +14,39 @@ import Data.IORef
 import Control.Concurrent (threadDelay)
 import Control.Monad.IO.Class
 
-#ifndef Service
+#ifdef Library
 client params= do
-      r <- callService  "" ("service","service") params ""
-      lliftIO $ print r
+      r <- callService  "" ("service","service") params
+      lliftIO $ print (r :: String)
 
 #else
 
-main= keep $ do
+main= keep $ runCloud $ do
+    runService ("service","service") service
+    empty
+  <|> do
+      runNodes [2001]
+--      local $ option "start" "start"
+      client ("hello","world")
+      empty
 
-    initNode' [("service","service")] $ do
 
-      makeService service
 
 addService s= do
-   nodes <- getNodes
-   con@Connection{myNode= mynode} <- getSData <|> error "connection not set. please initialize it"
+   con@Connection{myNode= mynode} <- getSData  -- <|> error "connection not set. please initialize it"
    mynode <- getMyNode
-   mynode'= mynode{services= services mynode++ s}
-   setNodes $ mynode': nodes\\[mynode]
+   let mynode'= mynode{nodeServices= s:nodeServices mynode}
+   addNodes [mynode']
    setData con{myNode= mynode'}
 
 
-makeService :: (a -> b)  -> a  -> TransIO ()
-makeService serv params= wormhole notused $ loggedc $ do
-      (x,y) <- local $ return params
-      serv (x,y)
-      teleport
-  where
-  notused= error "makeService: node should not be used"
 
-service :: (String,String) -> String
+
+service :: (String,String) -> Cloud String
 service (x,y)= do
       lliftIO $ print x
       return y
+
 
 service' params= wormhole undefined $ loggedc $ do
       (x,y) <- local $ return params

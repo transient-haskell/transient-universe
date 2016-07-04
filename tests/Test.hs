@@ -19,6 +19,9 @@ main= do
       local $ option "start" "start"
       client ("hello","world")
 
+client params= do
+      r <- callService  "" ("service","service") params ""
+      lliftIO $ print r
 
 
 

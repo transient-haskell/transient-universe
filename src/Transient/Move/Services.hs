@@ -17,7 +17,7 @@ module Transient.Move.Services  where
 import Transient.Base
 import Transient.Move
 import Transient.Logged(Loggable(..))
---import Transient.Internals((!>))
+import Transient.Internals(RemoteStatus(..))
 import Transient.Move.Utils
 import Transient.Internals(Log(..))
 import Transient.EVars
@@ -131,9 +131,9 @@ requestService ident service= local $  do
 
 
 callService
-    :: (Loggable a, Loggable witness)
-    => String -> Service -> a -> witness -> Cloud witness
-callService ident service params witness= do
+    :: (Loggable a, Loggable b)
+    => String -> Service -> a  -> Cloud b
+callService ident service params = do
     node <-  initService ident service
     log <- onAll $ do
            log  <- getSData <|> return emptyLog
@@ -150,7 +150,7 @@ callService ident service params witness= do
 --    local $ do
 --       Log _ _ log <- getSData <|> return emptyLog
 --       return() !> ("log after",log)
-    return (r `asTypeOf` witness)
+    return  r -- (r `asTypeOf` witness)
     where
     restoreLog (Log _ _ logw)= onAll $ do
        Log _ _ logw' <- getSData <|> return emptyLog
@@ -161,6 +161,21 @@ callService ident service params witness= do
 
     emptyLog= Log False [] []
 
+
+
+runEmbeddedService :: (Loggable a, Loggable b) =>  Service -> (a -> Cloud b) -> Cloud b
+runEmbeddedService servname serv =  do
+   port <- lliftIO $ freePort
+   listen $ createNode "localhost" (fromIntegral port) [servname]
+   wormhole notused $ loggedc $ do
+      x <- local $ return notused
+      r <- onAll $ runCloud (serv x) <** setData WasRemote
+      local $ return r
+      teleport
+      return r
+
+  where
+  notused= error "runService: variable should not be used"
 
 {-
 servicios

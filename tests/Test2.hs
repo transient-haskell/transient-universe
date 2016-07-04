@@ -1,72 +1,63 @@
+{-# LANGUAGE DeriveDataTypeable , ExistentialQuantification
+    ,ScopedTypeVariables, StandaloneDeriving, RecordWildCards, FlexibleContexts, CPP
+    ,GeneralizedNewtypeDeriving #-}
+
 module Main where
 
-import           Control.Monad
-import           Control.Monad.IO.Class
-import           Data.IORef
-import           GHC.Conc
-import           Control.Applicative
-import           Data.Monoid
-import           Transient.Base
-import           Transient.Indeterminism
-import           Transient.Logged
-import           Transient.Move
-import           Transient.Stream.Resource
-import           Transient.DDS
-import Control.Concurrent
-import System.IO.Unsafe
-import Data.List
-import Control.Exception.Base
-import Control.Monad.State
-import Unsafe.Coerce
-import qualified Data.Map as M
+import Prelude hiding (div)
+import Transient.Base
+#ifdef ghcjs_HOST_OS
+   hiding ( option,runCloud')
+#endif
+import GHCJS.HPlay.View
+#ifdef ghcjs_HOST_OS
+   hiding (map)
+#else
+   hiding (map, option,runCloud')
+#endif
 
-main= do
-     let numNodes = 2
-         ports = [2000 .. 2000 + numNodes - 1]
-         createLocalNode = createNode "localhost"
-         nodes = map createLocalNode ports
-         node1= head nodes
-         node2= nodes !! 1
+import  Transient.Move  hiding(teleport)
+import Control.Applicative
+import Control.Monad
+import Data.Typeable
+import Data.IORef
+import Control.Concurrent (threadDelay)
+import Control.Monad.IO.Class
+import Data.Monoid
+import Data.String
 
-     runCloud'   $ do
---          local $ addNodes nodes
---          runNodes nodes
+main= simpleWebApp 8081 $ local $  buttons  <|> linksample
+    where
+    linksample= do
+          r <- render $ br ++> wlink "Hi!" (toElem "This link say Hi!")`fire` OnClick
+          render $ rawHtml . b  $ " returns "++ r
 
-          local $   (sync $ async( threadDelay 1000000 >> print "hello") >> stop ) <|> (liftIO $print "world")
---         (liftIO (print "world") >>stop) <|> (liftIO $ print "hello")
+    buttons= do
+           render . rawHtml $ p "Different input elements:"
+           radio **> br
+               ++> checkButton
+               **> br ++> br
+               ++> select
+               <++ br
 
+    checkButton=do
+           rs <- render $  -- getCheckBoxes(
+                           ((setCheckBox False "Red"    <++ b "red")   `fire` OnClick)
+--                        <> ((setCheckBox False "Green"  <++ b "green") `fire` OnClick)
+--                        <> ((setCheckBox False "blue"   <++ b "blue")  `fire` OnClick) --)
+           render $ wraw $ fromString " returns: " <> b (show rs)
+           empty
 
+    radio= do
+           r <- render $ getRadio [fromString v ++> setRadioActive v | v <- ["red","green","blue"]]
 
+           render $ wraw $ fromString " returns: " <> b ( show r )
 
---     print r
+    select= do
+           r <- render $ getSelect (   setOption "red"   (fromString "red")
 
+                          <|> setOption "green" (fromString "green")
+                          <|> setOption "blue"  (fromString "blue"))
+                  `fire` OnClick
 
-sync :: TransIO a -> TransIO a
-sync x=  Transient $ do
-
-        EventF _ _ x' fs _ _ _ _ _ _ _  <- get
-
-
-
---        setContinuation x (\x -> liftIO (print "hi") >> return x)  $   fs
-        r <- runTrans $ unsafeCoerce x'
-
---        setData WasRemote
---        restoreStack fs
-        return r
-
-getEffects :: Loggable a =>  Cloud [(Node, a)]
-getEffects=lliftIO $ readMVar effects
-
-runNodes nodes= foldl (<|>) empty (map listen nodes) <|> return()
-
-
-delEffects= lliftIO $ modifyMVar_ effects $ const $ return[]
-effects= unsafePerformIO $ newMVar []
-
-effect x= do
-   node <- getMyNode
-   lliftIO $ modifyMVar_ effects $ \ xs ->  return $ (node,x): xs
-   return()
-
-
+           render $ wraw $ fromString " returns: " <> b ( show r )

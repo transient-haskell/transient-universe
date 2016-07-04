@@ -37,8 +37,10 @@ demo= do
        rawHtml $ do
           hr
           p "this snippet captures the essence of this demonstration"
-          p $ span "it's a blend of server and browser code in a "
-               >> (span $ b "composable") >> span " piece"
+          p $ do
+             span "it's a blend of server and browser code in a "
+             span $ b "composable"
+             span " piece"
 
           div ! id (fs "fibs") $ i "Fibonacci numbers should appear here"
 

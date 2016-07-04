@@ -31,13 +31,14 @@ import Data.List((\\))
 main = keep $ initNode $  test
 
 
-test= onBrowser $ do
-        local . render $ wlink () $ p "Product Categories"
-        r <- local . render $
+test= onBrowser $  local $ do
+
+        r <-  render $
             (,) <$> inputString Nothing `fire` OnChange
                 <*> inputInt Nothing `fire` OnChange
+                <** inputSubmit "click"  `fire` OnClick
 
-        lliftIO $ print r
+        liftIO $ print r
 
 
 

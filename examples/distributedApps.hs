@@ -20,7 +20,7 @@ import GHCJS.HPlay.View
 import Transient.Move
 import Transient.EVars
 import Transient.Indeterminism
-import Transient.Internals((!>))
+
 import Control.Applicative
 import qualified Data.Vector as V
 import qualified Data.Map as M

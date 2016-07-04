@@ -15,7 +15,7 @@
     ,GeneralizedNewtypeDeriving #-}
 module Transient.Move(
 
-Cloud(..),runCloudIO, runCloudIO',local,onAll,lazy, loggedc, lliftIO,
+Cloud(..),runCloudIO, runCloudIO',local,onAll,lazy, loggedc, lliftIO,localIO,
 listen, Transient.Move.connect, connect', fullStop,
 
 wormhole, teleport, copyData,
@@ -194,10 +194,16 @@ lazy mx= onAll $ getCont >>= \st -> Transient $
 
 -- log the result a cloud computation. like `loogged`, This eliminated all the log produced by computations
 -- inside and substitute it for that single result when the computation is completed.
+loggedc :: Loggable a => Cloud a -> Cloud a
 loggedc (Cloud mx)= Cloud $ logged mx
 
+-- | the `Cloud` monad has no `MonadIO` instance. `lliftIO= local . liftIO`
 lliftIO :: Loggable a => IO a -> Cloud a
 lliftIO= local . liftIO
+
+-- | locally perform IO. `localIO = lliftIO`
+localIO :: Loggable a => IO a -> Cloud a
+localIO= lliftIO
 
 --remote :: Loggable a => TransIO a -> Cloud a
 --remote x= Cloud $ step' x $ \full x ->  Transient $ do
@@ -772,7 +778,7 @@ defConnection :: Int -> Connection
 
 -- #ifndef ghcjs_HOST_OS
 defConnection size=
- Connection (createNode "program" 0 []) Nothing  size
+  Connection (createNode "program" 0 []) Nothing  size
                  (error "defConnection: accessing network events out of listen")
                  (unsafePerformIO $ newMVar ())
                  False (unsafePerformIO $ newMVar M.empty)
@@ -789,12 +795,6 @@ setBuffSize size= Transient $ do
 getBuffSize=
   (do getSData >>= return . bufferSize) <|> return  8192
 
---readHandler h= do
---    line <- hGetLine h
-----    return ()                             !> ("socket read",line) !> "------<---------------<----------<"
---    let [(v,left)] = readsPrec' 0 line
---    return  v
-----   `catch` (\(e::SomeException) ->  return $ SError e)
 
 
 
@@ -1058,28 +1058,13 @@ getNodes  = liftIO $ atomically $ readTVar  nodeList
 -- | add nodes to the list of nodes
 addNodes :: (MonadIO m, MonadState EventF m) => [Node] -> m ()
 addNodes   nodes=  do
-
--- #ifndef ghcjs_HOST_OS
---  mapM_ verifyNode nodes -- if the node is a web one, add his connection
--- #endif
-
   liftIO . atomically $ do
     prevnodes <- readTVar nodeList
-    writeTVar nodeList $ nub $ prevnodes  ++ nodes
+    writeTVar nodeList $ nub $ nodes ++ prevnodes
 
 -- | set the list of nodes
 setNodes nodes= liftIO $ atomically $ writeTVar nodeList $  nodes
 
--- #ifndef ghcjs_HOST_OS
---verifyNode (WebNode pool)= do
---  r <- getData `onNothing` error "adding web node without connection set"
---  case r of
---   conn@(Connection{connData= Just( Node2Web ws)}) ->
---            liftIO $ writeIORef pool [conn]
---   other -> return ()
---
---verifyNode n= return ()
--- #endif
 
 shuffleNodes :: MonadIO m => m [Node]
 shuffleNodes=  liftIO . atomically $ do
