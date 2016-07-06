@@ -1199,7 +1199,7 @@ httpMode (method,uri, headers) conn  = do
 
           content <- liftIO $  BL.readFile ( "./static/out.jsexe/"++ BC.unpack file)
                             `catch` (\(e:: SomeException) ->
-                                return  "Not found file: Index.html<br/> please compile with ghcjs<br/> ghcjs program.hs -o static/out")
+                                return  "Not found file: index.html<br/> please compile with ghcjs<br/> ghcjs program.hs -o static/out")
 
           n <- liftIO $ SBS.sendMany conn   $  ["HTTP/1.0 200 OK\nContent-Type: text/html\nConnection: close\nContent-Length: " <> BC.pack (show $ BL.length content) <>"\n\n"] ++
                                   (BL.toChunks content )

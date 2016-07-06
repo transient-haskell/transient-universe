@@ -32,6 +32,7 @@ import System.Directory
 import Control.Monad
 import Data.List
 import Data.Maybe
+import Data.Monoid
 --import Data.TCache hiding(onNothing)
 
 -- for the example
@@ -91,27 +92,37 @@ initService ident service@(package, program)= loggedc $ do
        Just node -> return node
        Nothing -> do
 
-          nodes <- callOne $ do
+          nodes <- callOne $ \thisNode -> do
                     yn<- requestService ident service
                     if yn then do
                         port <- onAll freePort
                         install package program  port
-                        nodeService port
+                        nodeService thisNode port
                       else empty
           local $ addNodes nodes
           return $ head nodes
     where
-    nodeService port= local $ do
-       Node h _ _ _ <- getMyNode
-       return $ Node h port (unsafePerformIO $ newMVar []) [service] :: TransIO Node
+    nodeService (Node h _ _ _) port= local $
+       return [Node h port (unsafePerformIO $ newMVar []) [service] ]
 
 
 
-callOne mx= local . collect 1 . runCloud $ clustered mx
+callOne mx= callNodes' (<>) empty mx
+ where
+
+ callNodes' op init proc= loggedc $ do
+    nodes <-  local getNodes
+    let nodes' = filter (not . isWebNode) nodes
+    foldr op init $ map (\node -> runAt node $ proc node) nodes'  :: Cloud [Node]
+    where
+    isWebNode Node {nodeServices=srvs}
+         | ("webnode","") `elem` srvs = True
+         | otherwise = False
+
 
 rfriends        =   unsafePerformIO $ newMVar []
 rservices       =   unsafePerformIO $ newMVar []
-ridentsBanned    =   unsafePerformIO $ newMVar []
+ridentsBanned   =   unsafePerformIO $ newMVar []
 rServicesBanned =   unsafePerformIO $ newMVar []
 
 requestService ident service= local $  do
@@ -175,7 +186,33 @@ runEmbeddedService servname serv =  do
       return r
 
   where
-  notused= error "runService: variable should not be used"
+  notused= error "runEmbeddedService: variable should not be used"
+
+runService :: (Loggable a, Loggable b) =>  Service -> (a -> Cloud b) -> Cloud b
+runService servname serv =  do
+   initNode [servname]
+   wormhole notused $ loggedc $ do
+      x <- local $ return notused
+      r <- onAll $ runCloud (serv x) <** setData WasRemote
+      local $ return r
+      teleport
+      return r
+   where
+   notused= error "runService: variable should not be used"
+   initNode servs=do
+      port <- local getPort
+      let conn= defConnection 8192
+          mynode= createNode "localhost" port servs
+
+      listen mynode <|> return()
+      where
+      getPort :: TransIO Integer
+      getPort =
+        if isBrowserInstance then return 0 else do
+          oneThread $ option "start" "re/start"
+          port <- input (const True) "port to listen? "
+          liftIO $ putStrLn "node started"
+          return port
 
 {-
 servicios

@@ -16,6 +16,7 @@ import Data.Monoid
 import System.IO
 import Control.Monad
 import Data.Maybe
+import Data.String
 import Control.Exception
 import Control.Concurrent (threadDelay)
 import Data.Typeable
@@ -34,11 +35,11 @@ main = keep $ initNode $  test
 test= onBrowser $  local $ do
 
         r <-  render $
-            (,) <$> inputString Nothing `fire` OnChange
-                <*> inputInt Nothing `fire` OnChange
+            (,) <$> inputString Nothing -- `fire` OnChange
+                <*> inputInt Nothing -- `fire` OnChange
                 <** inputSubmit "click"  `fire` OnClick
 
-        liftIO $ print r
+        liftIO $ alert $ fromString $ show r
 
 
 
