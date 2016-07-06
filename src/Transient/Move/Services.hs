@@ -186,6 +186,7 @@ runEmbeddedService servname serv =  do
       return r
 
   where
+
   notused= error "runEmbeddedService: variable should not be used"
 
 runService :: (Loggable a, Loggable b) =>  Service -> (a -> Cloud b) -> Cloud b
@@ -213,41 +214,5 @@ runService servname serv =  do
           port <- input (const True) "port to listen? "
           liftIO $ putStrLn "node started"
           return port
-
-{-
-servicios
-      autoinstall service
-      servicio de instalaci¢n de servicios
-  procedurers call services, services install themselves in nodes.
-     clustered oriented call invoke the nodes that shares the same service.
-        if the service variable state is set. if not, invoke all the nodes.
-
-  some service accessing data may move to the machine where the data is if support the service.
-
-  servicio en browser necesita algo que en el server no existe y no pude dar:
-     forward the request to other nodes
-     return the result to the browser.
-  forward service requests:
-     cuando un nodo no puede servir un servicio, puede hacer forward.
-        otros nodos puede instalarlo o hacer forward a su vez
-
-  clusterizaci¢n de servicios
-   nodo con database saturado puede hacer automatic sharding
-     siquientes requests retornan los nuevos nodos
-  la resupuesta de un servicio puede incluir una nueva direcci¢n, del nodo donde se ha movido o donde ha delegado.
-
-  servicio wrarpper que ejecuta una libreria no transient
-
-  cat logo de servicios
-  ghcjsi service for notebooks
-
-  web site de compilaci¢n que compile en su propio ordenador
-     opcion descargar el programa de instalacion y hace stack build
-     ventaja: conectar todos los nodos que ejecutan un servicio determinado
-       necesario un deposito de nombres de servicios:: github
-
-  friend ident.... request you to install... in your computer. Do you agree?
-   if ident is the same, this is automatic.
--}
 
 
