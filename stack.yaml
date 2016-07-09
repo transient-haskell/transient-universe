@@ -5,9 +5,7 @@ packages:
 
 - location:
     git: https://github.com/agocorona/transient.git
-    commit: e0e6be907a4045692155166ac450ca1def2f1a47
-
-extra-deps:
-- transient-0.4
 
 resolver: lts-6.0
+    commit: d9ee775d84b4d9aa7c4df3fa441450b8640a0d63
+  extra-dep: true
