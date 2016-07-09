@@ -1,52 +1,37 @@
 module Main where
 
-import Transient.Move
-import Transient.Move.Utils
-import           GHCJS.HPlay.View
-import Transient.Logged
 import Transient.Base
-import Transient.Indeterminism
-import Transient.EVars
+import Transient.Move
+import Transient.Internals
+import GHCJS.HPlay.View
+import Transient.Move.Utils
 import Control.Applicative
-
 import Control.Monad.IO.Class
-import System.Environment
-import System.IO.Unsafe
-import Data.Monoid
-import System.IO
-import Control.Monad
-import Data.Maybe
 import Data.String
-import Control.Exception
-import Control.Concurrent (threadDelay)
-import Data.Typeable
-import Data.IORef
-import Data.List((\\))
-
-
-
-
-
+import Control.Monad.State
 
 -- to be executed with two or more nodes
 main = keep $ initNode $  test
 
+alert1 x = liftIO $ do alert $ fromString $ show x ; return x
 
 test= onBrowser $  local $ do
 
         r <-  render $
-            (,) <$> inputString Nothing -- `fire` OnChange
-                <*> inputInt Nothing -- `fire` OnChange
-                <** inputSubmit "click"  `fire` OnClick
+            (,)  <$> getString (Just "eee")      `fire` OnChange
+                 <*> getString (Just "eee")     `fire` OnChange
+                 <** (inputSubmit "click" `fire` OnClick)
 
         liftIO $ alert $ fromString $ show r
 
+(<*|) a b=  do
+      (x,_) <- (,)  <$> a <*> b
+      return x
 
-
-
---         box <- local newMailBox
---         getMailBox box >>= lliftIO . print <|> putMailBox box "hello"
-
-
+--return1 l= do
+--     IDNUM id <- getSData <|> error "error"
+--     id1 <- gets mfSequence
+--     liftIO $ alert $ fromString $ show (id,id1)
+--     return l
 
 

@@ -6,8 +6,11 @@ import Prelude hiding (div,id)
 import Transient.Base
 
 #ifdef ghcjs_HOST_OS
-   hiding ( option)
+   hiding ( option,(<**))
+#else
+   hiding ((<**))
 #endif
+
 import GHCJS.HPlay.Cell
 import GHCJS.HPlay.View
 #ifdef ghcjs_HOST_OS
