@@ -1,1 +1,0 @@
-web: ./examples/webapp
