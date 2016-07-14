@@ -208,7 +208,7 @@ reduce red  (dds@(DDS mx))= loggedc $ do
        shuffler nodes = do
           ref@(Ref node path sav) <- mx
           return ()                                 -- !> ref
-          runAt node  $ local $ runCloud  ( foldAndSend  nodes ref)  -- <***    runCloud sendEnd
+          runAt node  $  foldAndSend  nodes ref
 
           stop
 
@@ -222,25 +222,32 @@ reduce red  (dds@(DDS mx))= loggedc $ do
 
 --           foldAndSend :: (Hashable k, Distributable vector a)=> (Int,[(k,vector a)]) -> Cloud ()
        foldAndSend nodes ref=  do
-                 nsent <-  onAll $ liftIO $ newMVar 0
-                 pairs <- onAll $ getPartitionData1 ref
-                            <|>  return (error $ "DDS computed out of his node:"++ show ref)
-                 let mpairs = groupByDestiny pairs
-                 length <- local . return $ M.size mpairs
-                 (i,folded) <- loggedc $ parallelize foldthem $  M.assocs  mpairs
+             nsent <-  onAll $ liftIO $ newMVar 0
+             pairs <- onAll $ getPartitionData1 ref
+                        <|>  return (error $ "DDS computed out of his node:"++ show ref)
+             let mpairs = groupByDestiny pairs
+             length <- local . return $ M.size mpairs
+             mynode <- local getMyNode
 
-                 runAt (nodes !! i) $  (local $ putMailbox box $ Reduce folded)
-                                                            -- !> ("SEND REDUCE DATA",folded)
-                 n <- lliftIO $ modifyMVar nsent $ \r -> return (r+1, r+1)
-                 when (n == length) $ sendEnd  nodes
+             mpart <- loggedc $ parallelize foldthem (M.assocs  mpairs) <|> return Nothing
 
-              where
-              foldthem (i,kvs)= local . async $ return  (i,map (\(k,vs) -> (k,foldl1 red vs)) kvs)
+             n <- lliftIO $ modifyMVar nsent $ \r -> return (r+1, r+1)
+             case mpart of
+              Just (i,folded) ->
+                runAt (nodes !! i) $  local $ putMailbox box $ Reduce folded
+                                                     --  !> ("SEND REDUCE DATA",mynode))
+              Nothing -> return ()
+
+             when (n >= length) $ sendEnd  nodes mynode
+
+             where
+             foldthem (i,kvs)= local . async . return . Just
+                                $ (i,map (\(k,vs) -> (k,foldl1 red vs)) kvs)
 
 
-       sendEnd nodes = onNodes nodes . local $  putMailbox box (EndReduce `asTypeOf` paramOf dds)
-
-       onNodes  nodes f= foldr (<|>) empty $ map (\n -> runAt n f ) nodes
+       sendEnd nodes mynode  = onNodes nodes . local $  putMailbox box (EndReduce `asTypeOf` paramOf dds)
+                                                         -- !> ("send ENDREDUCE",mynode)
+       onNodes  nodes f= foldr (<|>) empty $ map (\n -> runAt n f) nodes
 
        sumNodes nodes f= foldr (<>) mempty $ map (\n -> runAt n f) nodes
 
@@ -259,11 +266,12 @@ reduce red  (dds@(DDS mx))= loggedc $ do
              EndReduce -> do
 
                 n <- liftIO $ modifyMVar numberSent $ \r -> return (r+1, r+1)
-                if n == lengthNodes                  -- !>("END REDUCE RECEIVED",n, lengthNodes)
+                mynode <- getMyNode
+                if n == lengthNodes             --  !> ("END REDUCE RECEIVED",n, lengthNodes,mynode)
                  then do
                     cleanMailbox box (EndReduce `asTypeOf` paramOf dds)
                     r <- liftIO $ readMVar reduceResults
-                    return r                         -- !> ("reduceresult",r)
+                    return r                    --  !> ("reduceresult",r)
 
                  else stop
 
@@ -276,7 +284,7 @@ reduce red  (dds@(DDS mx))= loggedc $ do
                                   return $ M.insert k (case maccum of
                                     Just accum ->  red input accum
                                     Nothing    ->  input) map
-                mapM addIt  (kvs `asTypeOf` paramOf' dds)         -- !> ("Received Reduce",kvs)
+                mapM addIt  (kvs `asTypeOf` paramOf' dds)        --  !> ("Received Reduce",kvs)
                 stop
 
 
@@ -403,8 +411,8 @@ getText part str= DDS $ loggedc $ do
                 size= case length xs `div` lnodes of 0 ->1 ; n -> n
                 xss= Transient.MapReduce.fromList $
                        if i== lnodes-1 then drop (i* size) xs else  take size $ drop  (i *  size) xs
-            par <- generateRef  xss
-            (return  par)
+            generateRef  xss
+
 
 -- | get the worlds of an URL
 textUrl :: String -> DDS (DV.Vector Text.Text)
