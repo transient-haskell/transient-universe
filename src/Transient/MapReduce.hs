@@ -227,7 +227,7 @@ reduce red  (dds@(DDS mx))= loggedc $ do
                         <|>  return (error $ "DDS computed out of his node:"++ show ref)
              let mpairs = groupByDestiny pairs
              length <- local . return $ M.size mpairs
-             mynode <- local getMyNode
+
 
              mpart <- loggedc $ parallelize foldthem (M.assocs  mpairs) <|> return Nothing
 
@@ -238,14 +238,14 @@ reduce red  (dds@(DDS mx))= loggedc $ do
                                                      --  !> ("SEND REDUCE DATA",mynode))
               Nothing -> return ()
 
-             when (n >= length) $ sendEnd  nodes mynode
+             when (n > length) $ sendEnd  nodes
 
              where
              foldthem (i,kvs)= local . async . return . Just
                                 $ (i,map (\(k,vs) -> (k,foldl1 red vs)) kvs)
 
 
-       sendEnd nodes mynode  = onNodes nodes . local $  putMailbox box (EndReduce `asTypeOf` paramOf dds)
+       sendEnd nodes   = onNodes nodes . local $  putMailbox box (EndReduce `asTypeOf` paramOf dds)
                                                          -- !> ("send ENDREDUCE",mynode)
        onNodes  nodes f= foldr (<|>) empty $ map (\n -> runAt n f) nodes
 
@@ -266,7 +266,7 @@ reduce red  (dds@(DDS mx))= loggedc $ do
              EndReduce -> do
 
                 n <- liftIO $ modifyMVar numberSent $ \r -> return (r+1, r+1)
-                mynode <- getMyNode
+
                 if n == lengthNodes             --  !> ("END REDUCE RECEIVED",n, lengthNodes,mynode)
                  then do
                     cleanMailbox box (EndReduce `asTypeOf` paramOf dds)
@@ -377,14 +377,16 @@ distribute' xs= loggedc $  do
    let lnodes = length nodes
    let size= case F.length xs `div` (length nodes) of 0 ->1 ; n -> n
        xss= split size lnodes 1 xs                                     -- !> size
-   distribute'' xss nodes
+   r <- distribute'' xss nodes
+   return r
    where
    split n s s' xs | s==s' = [xs]
    split n s s' xs=
       let (h,t)= Transient.MapReduce.splitAt n xs
       in h : split n s (s'+1) t
 
-distribute'' :: (Loggable a, Distributable vector a) => [vector a] -> [Node] -> Cloud (PartRef (vector a))
+distribute'' :: (Loggable a, Distributable vector a)
+             => [vector a] -> [Node] -> Cloud (PartRef (vector a))
 distribute'' xss nodes =
    parallelize  move $ zip nodes xss   -- !> show xss
    where
@@ -398,13 +400,13 @@ distribute'' xss nodes =
 getText  :: (Loggable a, Distributable vector a) => (String -> [a]) -> String -> DDS (vector a)
 getText part str= DDS $ loggedc $ do
    nodes' <- local getNodes                                        -- !> "DISTRIBUTE"
-   let nodes = filter (not . isWebNode) nodes'
+   let nodes  = filter (not . isWebNode) nodes'
    let lnodes = length nodes
 
    parallelize  (process lnodes)  $ zip nodes [0..lnodes-1]
    where
-   isWebNode Node {nodeHost="webnode"}= True
-   isWebNode _= False
+   isWebNode node= "webnode" `elem` (map fst $ nodeServices node)
+
    process lnodes (node,i)= do
       runAt node $ local $ do
             let xs = part str

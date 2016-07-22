@@ -13,13 +13,15 @@
 -----------------------------------------------------------------------------
 
 module Transient.Move.Utils (initNode,inputNodes, simpleWebApp, initWebApp
-, onServer, onBrowser, runNodes)
+, onServer, onBrowser, runTestNodes)
  where
 
 import Transient.Base
+--import Transient.Internals((!>))
 import Transient.Move
 import Control.Applicative
 import Control.Monad.IO.Class
+import Data.IORef
 
 -- | ask in the console for the port number and initializes a node in the port specified
 -- It needs the application to be initialized with `keep` to get input from the user.
@@ -48,18 +50,18 @@ import Control.Monad.IO.Class
 --
 
 initNode app= do
-   port <- getPort
-   initWebApp port  app
+   node <- getPort
+   initWebApp node  app
 
 
   where
-  getPort :: TransIO Integer
+  getPort :: TransIO Node
   getPort =
-      if isBrowserInstance then return 0 else do
+      if isBrowserInstance then return createWebNode else do
           oneThread $ option "start" "re/start"
+          host <- input (const True) "hostname of this node (must be reachable): "
           port <- input (const True) "port to listen? "
-          liftIO $ putStrLn "node started"
-          return port
+          return $ createNode host port
 
 -- | ask for nodes to be added to the list of known nodes. it also ask to connect to the node to get
 -- his list of known nodes
@@ -74,7 +76,7 @@ inputNodes= do
           port <-  local $ input (const True) "port?"
 
           connectit <- local $ input (\x -> x=="y" || x== "n") "connect to get his list of nodes?"
-          let nnode= createNode host port []
+          let nnode= createNode host port
           if connectit== "y" then connect'  nnode
                              else local $ addNodes [nnode]
    empty
@@ -98,14 +100,14 @@ inputNodes= do
 --
 --
 simpleWebApp :: Integer -> Cloud () -> IO ()
-simpleWebApp port app =  keep $ initWebApp port app
+simpleWebApp port app =  keep $ initWebApp (createNode "localhost" port) app
 
 -- | use this instead of smpleWebApp when you have to do some initializations in the server prior to the
--- initialization of the web server. Otherwise, the behaviour is the same.
-initWebApp :: Integer -> Cloud () -> TransIO ()
-initWebApp port app=  do
+-- initialization of the web server
+initWebApp :: Node -> Cloud () -> TransIO ()
+initWebApp node app=  do
     let conn= defConnection 8192
-    setData $ conn{myNode= createNode "localhost" port []}
+    setData  conn{myNode = node}
     serverNode  <-  getWebServerNode  :: TransIO Node
 
     let mynode = if isBrowserInstance
@@ -114,7 +116,7 @@ initWebApp port app=  do
 
     runCloud $ do
         listen mynode <|> return()
-        wormhole serverNode app
+        wormhole serverNode app   -- !> ("servernode", serverNode)
         return ()
 
 -- only execute if the the program is executing in the browser. The code inside can contain calls to the server.
@@ -132,8 +134,7 @@ onServer x= do
 
 -- | run N nodes (N ports to listen) in the same program. For testing purposes.
 -- It add them to the list of known nodes, so it is possible to perform `clustered` operations with them.
-runNodes ports= do
-    let nodes=  map (\p -> createNode "localhost" p []) ports
-    onAll $ addNodes nodes
+runTestNodes ports= do
+    let nodes=  map (\p -> createNode "localhost" p) ports
     foldl (<|>) empty (map listen nodes) <|> return()
 

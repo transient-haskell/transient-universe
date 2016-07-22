@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 module Main where
 
 import           Control.Monad
@@ -21,78 +22,83 @@ import Control.Exception.Base
 import qualified Data.Map as M
 import System.Exit
 
+#define _UPK_(x) {-# UNPACK #-} !(x)
+
+
+#define shouldRun(x) (local $ getMyNode >>= \(Node _ p _ _) -> assert ( p == (x)) (return ()))
+
+
 main= do
-     let numNodes = 3
+     let numNodes = 4
          ports = [2000 .. 2000 + numNodes - 1]
          createLocalNode = createNode "localhost"
          nodes = map createLocalNode ports
          n2000= head nodes
          n2001= nodes !! 1
          n2002= nodes !! 2
-
+         n2003= nodes !! 3
      r <-runCloudIO $ do
-
-          local $ addNodes nodes
-
           runNodes nodes
           local $ option "s" "start"
 
---          local $ do
+
+          local $ do
+              liftIO $ putStrLn "--------------checking  parallel execution, events --------"
+              ev <- newEVar
+              r <- collect 3 $ readEVar ev <|> ((choose [1..3] >>= writeEVar ev) >> stop)
+
+              assert (sort r== [1,2,3]) $ liftIO $ print r
+
+--          t <- runAt n2000 (localIO $ print "hello0")
+--               <>  runAt n2001 ( localIO $ print "world1")
+--               <>  runAt n2002 ( localIO $ print "world2")
+--               <>  runAt n2003 ( localIO $ print "world2")
+--          localIO $ print t
+--          t <- local (async $ return ()) <>  local (async $ return ()) <> local (async $ return ())
 --
---              ev <- newEVar
---              r <- collect 3 $ readEVar ev <|> ((choose [1..3] >>= writeEVar ev) >> stop)
---
---              assert (sort r== [1,2,3]) $ liftIO $ print r
-
-
---          lliftIO $ putStrLn "--------------checking Applicative distributed--------"
---          r <-  (runAt n2000 (effect "2000" >> return "hello "))
---                    <>  (runAt n2001 (effect "2001" >> return "world " ))
---                    <>  (runAt n2002 (effect "2002" >> return "world2" ))
---          assert(r== "hello world world2") $ lliftIO $ print r
---
---          effs <- getEffects  :: Cloud [(Node, String)]
---          lliftIO $ print effs
---          assert (sort effs == sort [(n2000,"2000"),(n2001,"2001"),(n2002,"2002")]) $return ()
---          delEffects
+--          localIO $ print t
+--          wormhole n2003  $ do
+--            teleport
+--            (localIO $ print "hello3")
+--            teleport
+--          stop
 
 
 
-
---          lliftIO $ putStrLn "------checking Alternative distributed--------"
---          r <- local $ collect' 3 1 0  $ runCloud $ (runAt n2000 (effect "2000" >> return "hello"))
---                    <|>  (runAt n2001 (effect "2001" >> return "world" ))
---                    <|>  (runAt n2002 (effect "2002" >> return "world2" ))
---
---          loggedc $ do
---            assert(sort r== ["hello", "world","world2"]) $ lliftIO $  print r
---            effs <- getEffects ::  Cloud [(Node, String)]
---            lliftIO $ print effs
---            assert (sort effs == sort [(n2000,"2000"),(n2001,"2001"),(n2002,"2002")]) $return ()
---            delEffects
-
-
-
-
---          lliftIO $ putStrLn ">>>>>>>>>>>>checking monadic, distributed<<<<<<<<<<<<<<<"
---          r <- runAt n2000 (effect "n2000"
---                  >> runAt n2001 (effect "n2001"
---                       >> runAt n2002 (effect "n2002" >>  (return "HELLO" ))))
---
---          assert(r== "HELLO") $ lliftIO $ print r
---
---          effs <- getEffects
---          assert (sort effs == sort [(n2000,"n2000"),(n2001,"n2001"),(n2002,"n2002")]) $ return ()
---          delEffects
+          lliftIO $ putStrLn "--------------checking Applicative distributed--------"
+          r <- loggedc $(runAt n2000 (shouldRun(2000) >> return "hello "))
+                    <>  (runAt n2001 (shouldRun(2001) >> return "world " ))
+                    <>  (runAt n2002 (shouldRun (2002) >> return "world2" ))
+          assert(r== "hello world world2") $ lliftIO $ print r
 
 
 
 
 
+          lliftIO $ putStrLn "------checking Alternative distributed--------"
+          r <- local $ collect' 3 1 0 $
+                   runCloud $ (runAt n2000 (shouldRun(2000) >> return "hello"))
+                         <|>  (runAt n2001 (shouldRun(2001) >> return "world" ))
+                         <|>  (runAt n2002 (shouldRun(2002) >> return "world2" ))
 
+          loggedc $  assert(sort r== ["hello", "world","world2"]) $ lliftIO $  print r
+
+
+
+
+
+          lliftIO $ putStrLn "----------------checking monadic, distributed-------------"
+          r <- runAt n2000 (shouldRun(2000)
+                  >> runAt n2001 (shouldRun(2001)
+                       >> runAt n2002 (shouldRun(2002) >>  (return "HELLO" ))))
+
+          assert(r== "HELLO") $ lliftIO $ print r
+
+
+          lliftIO $ putStrLn "----------------checking map-reduce -------------"
           r <- reduce  (+)  . mapKeyB (\w -> (w, 1 :: Int))  $ getText  words "hello world hello hi"
           lliftIO $ putStr "SOLUTION: " >> print r
-          assert (sort (M.toList r) == sort [("hello",2),("hi",1),("world",1)]) $ return ()
+          assert (sort (M.toList r) == sort [("hello",2::Int),("hi",1),("world",1)]) $ return r
 
 
 
@@ -105,18 +111,20 @@ main= do
 
      exitSuccess
 
-getEffects :: Loggable a =>  Cloud [(Node, a)]
-getEffects=lliftIO $ readMVar effects
-
+--getEffects :: Loggable a =>  Cloud [(Node, a)]
+--getEffects=lliftIO $ readIORef effects
+--
 runNodes nodes= foldl (<|>) empty (map listen nodes) <|> return()
+--
+--
+--delEffects= lliftIO $ writeIORef effects []
+--effects= unsafePerformIO $ newIORef []
+--
+--EFFECT x= do
+--   node <- onAll getMyNode
+--   lliftIO $ atomicModifyIORef effects $ \ xs -> ((node,x): xs,())
+--   return()
 
 
-delEffects= lliftIO $ modifyMVar_ effects $ const $ return[]
-effects= unsafePerformIO $ newMVar []
-
-effect x= do
-   node <- local getMyNode
-   lliftIO $ modifyMVar_ effects $ \ xs ->  return $ (node,x): xs
-   return()
 
 

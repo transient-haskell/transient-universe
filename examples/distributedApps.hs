@@ -5,16 +5,12 @@ module Main where
 import Prelude hiding (div,id)
 import Transient.Base
 
-#ifdef ghcjs_HOST_OS
-   hiding ( option,(<**))
-#else
-   hiding ((<**))
-#endif
+
 
 import GHCJS.HPlay.Cell
 import GHCJS.HPlay.View
 #ifdef ghcjs_HOST_OS
-   hiding (map,input)
+   hiding (map, input,option)
 #else
    hiding (map, option,input)
 #endif
@@ -37,8 +33,15 @@ import qualified Data.JSString as JS hiding (span,empty,strip,words)
 
 
 
-main =  keep $  initNode  $  mapReduce <|>  chat  <|> inputNodes
+main =  keep $  initNode  $  mapReduce <|>  chat  <|> inputNodes <|> mapReduceServer
 
+
+mapReduceServer= onServer $ do
+   local $ option "text"  "enter text to count the words"
+   content <- local $ input (const  True) "enter the content: "
+
+   r<- reduce  (+) . mapKeyB (\w -> (w, 1 :: Int))  $ distribute $ V.fromList $ words content
+   localIO $ putStr "result:" >> print (r :: M.Map String Int)
 
 -- A Web node launch a map-reduce computation in all the server nodes, getting data from a
 -- textbox and render the results returned
@@ -96,7 +99,7 @@ chat=  onBrowser $  do
           clustered $ local $ putMailbox chatMessages (showNode node ++ text :: String)
           return ()
 
-  showNode node= nodeHost node ++ ":" ++ show (nodePort node) ++ ">"
+  showNode node= show node ++ ">"
 
   waitMessages chatMessages = do
     resp <- atRemote . local $  getMailbox chatMessages  -- atRemote, in the server

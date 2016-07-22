@@ -18,8 +18,8 @@ alert1 x = liftIO $ do alert $ fromString $ show x ; return x
 test= onBrowser $  local $ do
 
         r <-  render $
-            (,)  <$> getString (Just "eee")      `fire` OnChange
-                 <*> getString (Just "eee")     `fire` OnChange
+            (,)  <$> getString Nothing    `fire` OnChange
+                 <*> getString Nothing     `fire` OnChange
                  <** (inputSubmit "click" `fire` OnClick)
 
         liftIO $ alert $ fromString $ show r

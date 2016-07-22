@@ -43,6 +43,7 @@ library
                       , network-uri      -any
                       , vector           -any
                       , websockets       -any
+                      , iproute          -any
 
     exposed-modules:
         Transient.Move

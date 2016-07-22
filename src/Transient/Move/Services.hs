@@ -102,8 +102,8 @@ initService ident service@(package, program)= loggedc $ do
           local $ addNodes nodes
           return $ head nodes
     where
-    nodeService (Node h _ _ _) port= local $
-       return [Node h port (unsafePerformIO $ newMVar []) [service] ]
+    nodeService (Node h p _ _) port= local $
+       return [Node h p (unsafePerformIO $ newMVar []) [service] ]
 
 
 
@@ -177,7 +177,7 @@ callService ident service params = do
 runEmbeddedService :: (Loggable a, Loggable b) =>  Service -> (a -> Cloud b) -> Cloud b
 runEmbeddedService servname serv =  do
    port <- lliftIO $ freePort
-   listen $ createNode "localhost" (fromIntegral port) [servname]
+   listen $ createNodeServ "localhost" (fromIntegral port) [servname]
    wormhole notused $ loggedc $ do
       x <- local $ return notused
       r <- onAll $ runCloud (serv x) <** setData WasRemote
@@ -203,7 +203,7 @@ runService servname serv =  do
    initNode servs=do
       port <- local getPort
       let conn= defConnection 8192
-          mynode= createNode "localhost" port servs
+          mynode= createNodeServ "localhost" port servs
 
       listen mynode <|> return()
       where

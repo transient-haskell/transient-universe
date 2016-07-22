@@ -33,8 +33,8 @@ main= keep $ runCloud $ do
 
 
 addService s= do
-   con@Connection{myNode= mynode} <- getSData  -- <|> error "connection not set. please initialize it"
-   mynode <- getMyNode
+   con@Connection{myNode= mynode} <- getSData   <|> error "connection not set. please initialize it"
+
    let mynode'= mynode{nodeServices= s:nodeServices mynode}
    addNodes [mynode']
    setData con{myNode= mynode'}
