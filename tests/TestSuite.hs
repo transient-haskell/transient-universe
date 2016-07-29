@@ -41,7 +41,6 @@ main= do
           runNodes nodes
           local $ option "s" "start"
 
-
           local $ do
               liftIO $ putStrLn "--------------checking  parallel execution, events --------"
               ev <- newEVar
@@ -49,29 +48,12 @@ main= do
 
               assert (sort r== [1,2,3]) $ liftIO $ print r
 
---          t <- runAt n2000 (localIO $ print "hello0")
---               <>  runAt n2001 ( localIO $ print "world1")
---               <>  runAt n2002 ( localIO $ print "world2")
---               <>  runAt n2003 ( localIO $ print "world2")
---          localIO $ print t
---          t <- local (async $ return ()) <>  local (async $ return ()) <> local (async $ return ())
---
---          localIO $ print t
---          wormhole n2003  $ do
---            teleport
---            (localIO $ print "hello3")
---            teleport
---          stop
-
-
-
           lliftIO $ putStrLn "--------------checking Applicative distributed--------"
           r <- loggedc $(runAt n2000 (shouldRun(2000) >> return "hello "))
                     <>  (runAt n2001 (shouldRun(2001) >> return "world " ))
                     <>  (runAt n2002 (shouldRun (2002) >> return "world2" ))
+          localIO $ print r
           assert(r== "hello world world2") $ lliftIO $ print r
-
-
 
 
 

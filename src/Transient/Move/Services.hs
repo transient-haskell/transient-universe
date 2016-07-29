@@ -17,9 +17,9 @@ module Transient.Move.Services  where
 import Transient.Base
 import Transient.Move
 import Transient.Logged(Loggable(..))
-import Transient.Internals(RemoteStatus(..))
+import Transient.Internals((!>),RemoteStatus(..), Log(..))
 import Transient.Move.Utils
-import Transient.Internals(Log(..))
+
 import Transient.EVars
 import Transient.Indeterminism
 import Control.Monad.IO.Class
@@ -51,7 +51,7 @@ import System.Environment
 --          createProcess $ shell prog
 
 
-pathExe package program port= package++"/dist/build/"++package++"/"++program
+pathExe package program port= {-"./"++package++"/dist/build/"++package++"/"++  -} program
                                        ++ " -p start/" ++ show port
 
 install :: String  -> String -> Int -> Cloud ()
@@ -61,15 +61,15 @@ install package program port =  do
      exist <- local $ liftIO $ doesDirectoryExist  packagename
      when (not exist) $ local $ liftIO $ do
          callProcess  "git" ["clone",package]
-         liftIO $ print "GIT DONE"
+         liftIO $ putStr package >> putStrLn " cloned"
          setCurrentDirectory packagename
          callProcess  "cabal" ["install","--force-reinstalls"]
          setCurrentDirectory ".."
          return()
      let prog = pathExe packagename program port
-     lliftIO $ print prog
+     lliftIO $ print $ "executing "++ prog
      local $ liftIO $ do
-           createProcess $ shell program
+           createProcess $ shell prog
            return ()
 
      return()
@@ -97,7 +97,7 @@ initService ident service@(package, program)= loggedc $ do
                     if yn then do
                         port <- onAll freePort
                         install package program  port
-                        nodeService thisNode port
+                        nodeService thisNode port  !> "GENERATED NODE"
                       else empty
           local $ addNodes nodes
           return $ head nodes
@@ -146,6 +146,7 @@ callService
     => String -> Service -> a  -> Cloud b
 callService ident service params = do
     node <-  initService ident service
+    return () !> node
     log <- onAll $ do
            log  <- getSData <|> return emptyLog
            setData emptyLog
@@ -191,28 +192,26 @@ runEmbeddedService servname serv =  do
 
 runService :: (Loggable a, Loggable b) =>  Service -> (a -> Cloud b) -> Cloud b
 runService servname serv =  do
-   initNode [servname]
-   wormhole notused $ loggedc $ do
-      x <- local $ return notused
+   initNodeServ [servname]
+   wormhole (notused 1) $ loggedc $ do
+      x <- local $ return $ notused 2
       r <- onAll $ runCloud (serv x) <** setData WasRemote
       local $ return r
       teleport
       return r
    where
-   notused= error "runService: variable should not be used"
-   initNode servs=do
-      port <- local getPort
-      let conn= defConnection 8192
-          mynode= createNodeServ "localhost" port servs
+   notused n= error $  "runService: "++ show (n::Int) ++ " variable should not be used"
+   initNodeServ servs=do
+      mynode <- local $ do
+        port <-  getPort
+        return $ createNodeServ "localhost" port servs
 
-      listen mynode <|> return()
+      listen mynode -- <|> return()
       where
       getPort :: TransIO Integer
-      getPort =
-        if isBrowserInstance then return 0 else do
-          oneThread $ option "start" "re/start"
-          port <- input (const True) "port to listen? "
-          liftIO $ putStrLn "node started"
-          return port
+      getPort =  if isBrowserInstance then return 0 else do
+          oneThread $ option "start" "re/start node"
+          input (const True) "port to listen? "
+
 
 

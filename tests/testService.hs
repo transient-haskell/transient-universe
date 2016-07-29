@@ -2,7 +2,7 @@
 
 
 import Transient.Base
-import Transient.Internals((!>))
+--import Transient.Internals((!>))
 import Transient.Move
 import Transient.Move.Utils
 import Transient.Logged
@@ -15,45 +15,47 @@ import Control.Concurrent (threadDelay)
 import Control.Monad.IO.Class
 
 #ifdef Library
-client params= do
+#else
+
+clientStub params= do
       r <- callService  "" ("service","service") params
       lliftIO $ print (r :: String)
 
-#else
+
 
 main= keep $ runCloud $ do
-    runService ("service","service") service
+    runEmbeddedService ("service","service") serviceImplementation
     empty
   <|> do
-      runNodes [2001]
---      local $ option "start" "start"
-      client ("hello","world")
+--      runTestNodes [2001]
+--      local $ option "start1" "start1"
+      clientStub ("hello","world")
       empty
 
 
 
-addService s= do
-   con@Connection{myNode= mynode} <- getSData   <|> error "connection not set. please initialize it"
-
-   let mynode'= mynode{nodeServices= s:nodeServices mynode}
-   addNodes [mynode']
-   setData con{myNode= mynode'}
-
-
+--addService s= do
+--   con@Connection{myNode= mynode} <- getSData   <|> error "connection not set. please initialize it"
+--
+--   let mynode'= mynode{nodeServices= s:nodeServices mynode}
+--   addNodes [mynode']
+--   setData con{myNode= mynode'}
 
 
-service :: (String,String) -> Cloud String
-service (x,y)= do
+
+
+serviceImplementation :: (String,String) -> Cloud String
+serviceImplementation (x,y)= do
       lliftIO $ print x
       return y
 
 
-service' params= wormhole undefined $ loggedc $ do
-      (x,y) <- local $ return params
-      lliftIO $ print x
-      local $ return y
-      teleport
-      empty
+--service' params= wormhole undefined . loggedc $ do
+--      (x,y) <- local $ return params
+--      lliftIO $ print x
+--      local $ return y
+--      teleport
+--      empty
 
 #endif
 

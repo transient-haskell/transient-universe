@@ -58,7 +58,7 @@ initNode app= do
   getPort :: TransIO Node
   getPort =
       if isBrowserInstance then return createWebNode else do
-          oneThread $ option "start" "re/start"
+          oneThread $ option "start" "re/start node"
           host <- input (const True) "hostname of this node (must be reachable): "
           port <- input (const True) "port to listen? "
           return $ createNode host port
