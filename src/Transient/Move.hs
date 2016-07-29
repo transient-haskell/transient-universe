@@ -42,7 +42,7 @@ addNodes, shuffleNodes,
 
 ) where
 import Transient.Base
-import Transient.Internals(killChildren,getCont,runCont,EventF(..),LogElem(..),Log(..)
+import Transient.Internals(IDynamic(..),killChildren,getCont,runCont,EventF(..),LogElem(..),Log(..)
        ,onNothing,RemoteStatus(..),getCont,StateIO,readsPrec')
 import Transient.Logged
 import Transient.Indeterminism(choose)
@@ -137,8 +137,31 @@ instance Ord Node where
 
 -- The cloud monad is a thin layer over Transient in order to make sure that the type system
 -- forces the logging of intermediate results
-newtype Cloud a= Cloud {runCloud ::TransIO a} deriving (Functor,Applicative,Alternative, Monad, MonadState EventF, Monoid)
-
+newtype Cloud a= Cloud {runCloud ::TransIO a} deriving (Functor,Applicative,Monoid,Alternative, Monad, MonadState EventF)
+--
+--
+--instance Applicative Cloud  where
+--
+--   pure = return
+--
+--   x <*> y= Cloud . Transient $ do
+--       l1 <- liftIO $ newIORef Nothing
+--       l2 <- liftIO $ newIORef Nothing
+--       runTrans $ do
+--           Log _  _ full <- getData `onNothing` error "instance Applicative: no log"
+--           r <- runCloud (eval l1 x) <*> runCloud (eval l2 y)
+--           Just v1 <- localIO $ readIORef l1
+--           Just v2 <- localIO $ readIORef l2
+--           let full' = Var (toIDyn v1) : Var (toIDyn v2) : full
+--           setData $ Log False full' full'
+--           return r
+--       where
+--       eval l x= x >>= \v -> localIO (writeIORef l $ Just v) >> return v
+--
+--
+--instance Monoid a => Monoid (Cloud a) where
+--   mappend x y = mappend <$> x <*> y
+--   mempty= return mempty
 
 -- | Means that this computation will be executed in the current node. the result will be logged
 -- so the closure will be recovered if the computation is translated to other node by means of
@@ -866,12 +889,12 @@ listenNew port conn= do --  node bufSize events blocked port= do
 
 
 
-instance Read PortNumber where
-  readsPrec n str= let [(n,s)]=   readsPrec n str in [(fromIntegral n,s)]
+--instance Read PortNumber where
+--  readsPrec n str= let [(n,s)]=   readsPrec n str in [(fromIntegral n,s)]
 
 
-deriving instance Read PortID
-deriving instance Typeable PortID
+--deriving instance Read PortID
+--deriving instance Typeable PortID
 #endif
 
 
@@ -1265,7 +1288,8 @@ data ParseContext a = IsString a => ParseContext (IO  a) a deriving Typeable
 
 receiveHTTPHead s = do
   input <-  liftIO $ SBSL.getContents s
-  setData $ (ParseContext (error "SHOULD NOT READ") input ::ParseContext BS.ByteString)
+  setData $ (ParseContext (error "request truncated. Maybe the browser program does not match the server one. \nRecompile the program again with ghcjs <prog>  -o static/out") input
+             ::ParseContext BS.ByteString)
   (method, uri, vers) <- (,,) <$> getMethod <*> getUri <*> getVers
   headers <- many $ (,) <$> (mk <$> getParam) <*> getParamValue    -- !>  (method, uri, vers)
   return (method, toStrict uri, headers)                                    -- !>  (method, uri, headers)
