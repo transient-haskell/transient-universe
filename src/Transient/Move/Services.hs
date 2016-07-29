@@ -17,7 +17,7 @@ module Transient.Move.Services  where
 import Transient.Base
 import Transient.Move
 import Transient.Logged(Loggable(..))
-import Transient.Internals((!>),RemoteStatus(..), Log(..))
+import Transient.Internals(RemoteStatus(..), Log(..))
 import Transient.Move.Utils
 
 import Transient.EVars
@@ -68,11 +68,10 @@ install package program port =  do
          return()
      let prog = pathExe packagename program port
      lliftIO $ print $ "executing "++ prog
-     local $ liftIO $ do
-           createProcess $ shell prog
-           return ()
+     local  $ (async $ do createProcess $ shell prog ; return ()) <|> return ()
 
-     return()
+
+     return() -- !> "INSTALLED"
 
 name url=  slash . slash . slash $ slash url
   where
@@ -97,10 +96,10 @@ initService ident service@(package, program)= loggedc $ do
                     if yn then do
                         port <- onAll freePort
                         install package program  port
-                        nodeService thisNode port  !> "GENERATED NODE"
+                        nodeService thisNode port
                       else empty
           local $ addNodes nodes
-          return $ head nodes
+          return $ head nodes  -- !> ("GENERATED NODE", nodes)
     where
     nodeService (Node h p _ _) port= local $
        return [Node h p (unsafePerformIO $ newMVar []) [service] ]
@@ -146,7 +145,7 @@ callService
     => String -> Service -> a  -> Cloud b
 callService ident service params = do
     node <-  initService ident service
-    return () !> node
+    localIO $ print node
     log <- onAll $ do
            log  <- getSData <|> return emptyLog
            setData emptyLog
