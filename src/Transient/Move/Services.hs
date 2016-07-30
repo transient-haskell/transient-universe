@@ -99,10 +99,10 @@ initService ident service@(package, program)= loggedc $ do
                         nodeService thisNode port
                       else empty
           local $ addNodes nodes
-          return $ head nodes  -- !> ("GENERATED NODE", nodes)
+          return $ head nodes   -- !> ("GENERATED NODE", nodes)
     where
-    nodeService (Node h p _ _) port= local $
-       return [Node h p (unsafePerformIO $ newMVar []) [service] ]
+    nodeService (Node h _ _ _) port= local $
+       return [Node h port (unsafePerformIO $ newMVar []) [service] ]  -- !> (thisNode,port)
 
 
 
@@ -125,7 +125,6 @@ ridentsBanned   =   unsafePerformIO $ newMVar []
 rServicesBanned =   unsafePerformIO $ newMVar []
 
 requestService ident service= local $  do
-
      friends            <- liftIO $ readMVar rfriends
      services           <- liftIO $ readMVar rservices
      identsBanned       <- liftIO $ readMVar ridentsBanned
