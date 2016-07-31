@@ -17,7 +17,7 @@ module Transient.Move.Services  where
 import Transient.Base
 import Transient.Move
 import Transient.Logged(Loggable(..))
-import Transient.Internals(RemoteStatus(..), Log(..))
+import Transient.Internals((!>),RemoteStatus(..), Log(..))
 import Transient.Move.Utils
 
 import Transient.EVars
@@ -68,7 +68,7 @@ install package program port =  do
          return()
      let prog = pathExe packagename program port
      lliftIO $ print $ "executing "++ prog
-     local  $ (async $ do createProcess $ shell prog ; return ()) <|> return ()
+     localIO $ do createProcess $ shell prog ; return ()  -- ) <|> return ()
 
 
      return() -- !> "INSTALLED"
@@ -88,21 +88,23 @@ freePort= liftIO $ modifyMVar rfreePort $ \ n -> return (n+1,n)
 initService ident service@(package, program)= loggedc $ do
     nodes <- local getNodes
     case find (\node  -> service `elem` nodeServices node) nodes  of
-       Just node -> return node
+       Just node -> return node !> "found"
        Nothing -> do
 
-          nodes <- callOne $ \thisNode -> do
-                    yn<- requestService ident service
-                    if yn then do
-                        port <- onAll freePort
-                        install package program  port
-                        nodeService thisNode port
-                      else empty
+          node <- runAt (head nodes) $  do local $  liftIO $ createNode "localhost" 0
+--                    thisNode <- local getMyNode
+--                    yn<- requestService ident service
+--                    if yn  !> yn then do
+--                        port <- onAll freePort
+--                        return () !> "install"
+--                        install package program  port
+--                        nodeService thisNode port
+--                      else empty
           local $ addNodes nodes
-          return $ head nodes   -- !> ("GENERATED NODE", nodes)
+          return $ head nodes    !> ("GENERATED NODE", nodes)
     where
     nodeService (Node h _ _ _) port= local $
-       return [Node h port (unsafePerformIO $ newMVar []) [service] ]  -- !> (thisNode,port)
+       return [Node h port (unsafePerformIO $ newMVar []) [service] ]
 
 
 
@@ -143,8 +145,9 @@ callService
     :: (Loggable a, Loggable b)
     => String -> Service -> a  -> Cloud b
 callService ident service params = do
+    return() !> "callservice"
     node <-  initService ident service
-    localIO $ print node
+    localIO $ print ("node returned",node)
     log <- onAll $ do
            log  <- getSData <|> return emptyLog
            setData emptyLog
@@ -175,8 +178,10 @@ callService ident service params = do
 
 runEmbeddedService :: (Loggable a, Loggable b) =>  Service -> (a -> Cloud b) -> Cloud b
 runEmbeddedService servname serv =  do
-   port <- lliftIO $ freePort
-   listen $ createNodeServ "localhost" (fromIntegral port) [servname]
+   node <- localIO $ do
+          port <- freePort
+          createNodeServ "localhost" (fromIntegral port) [servname]
+   listen node
    wormhole notused $ loggedc $ do
       x <- local $ return notused
       r <- onAll $ runCloud (serv x) <** setData WasRemote
@@ -202,7 +207,7 @@ runService servname serv =  do
    initNodeServ servs=do
       mynode <- local $ do
         port <-  getPort
-        return $ createNodeServ "localhost" port servs
+        liftIO $ createNodeServ "localhost" port servs
 
       listen mynode -- <|> return()
       where

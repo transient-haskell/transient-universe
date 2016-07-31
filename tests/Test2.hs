@@ -7,16 +7,17 @@ import Transient.Base
 
 
 
-import GHCJS.HPlay.Cell
-import GHCJS.HPlay.View
+--import GHCJS.HPlay.Cell
+--import GHCJS.HPlay.View
 #ifdef ghcjs_HOST_OS
    hiding (map, input,option)
 #else
    hiding (map, option,input)
 #endif
 
-
+import Transient.Base
 import Transient.Move
+import Transient.Move.Utils
 import Transient.EVars
 import Transient.Indeterminism
 
@@ -31,23 +32,22 @@ import qualified Data.Text as T
 import qualified Data.JSString as JS hiding (span,empty,strip,words)
 #endif
 
+import Control.Concurrent.MVar
+import System.IO.Unsafe
 
 
 
-
-main= do
-     let numNodes = 3
-         ports = [2000 .. 2000 + numNodes - 1]
-         createLocalNode = createNode "localhost"
-         nodes = map createLocalNode ports
-         n2000= Prelude.head nodes
-         n2001= nodes !! 1
-         n2002= nodes !! 2
-
-     runCloudIO $ do
-          runNodes nodes
-          local $ option "s" "start"
-          runAt n2000 $ localIO $ print "hello"
+main= keep $ initNode $ test
 
 
-runNodes nodes= foldl (<|>) empty (map listen nodes) <|> return()
+test :: Cloud ()
+test= onServer $ do
+   local $ option "t" "do test"
+
+   r <- wormhole (Node "localhost" 8080 (unsafePerformIO $ newMVar  []) []) $ do
+      teleport
+      p <- localIO $ print "ping" >> return "pong"
+      teleport
+      return p
+   localIO $ print r
+

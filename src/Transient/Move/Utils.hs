@@ -48,7 +48,7 @@ import Data.IORef
 --
 -- To translate the code from the browser to the server node, use `teleport`.
 --
-
+initNode :: Cloud () -> TransIO ()
 initNode app= do
    node <- getPort
    initWebApp node  app
@@ -57,11 +57,11 @@ initNode app= do
   where
   getPort :: TransIO Node
   getPort =
-      if isBrowserInstance then return createWebNode else do
+      if isBrowserInstance then  liftIO createWebNode else do
           oneThread $ option "start" "re/start node"
           host <- input (const True) "hostname of this node (must be reachable): "
           port <- input (const True) "port to listen? "
-          return $ createNode host port
+          liftIO $ createNode host port
 
 -- | ask for nodes to be added to the list of known nodes. it also ask to connect to the node to get
 -- his list of known nodes
@@ -76,7 +76,7 @@ inputNodes= do
           port <-  local $ input (const True) "port?"
 
           connectit <- local $ input (\x -> x=="y" || x== "n") "connect to get his list of nodes?"
-          let nnode= createNode host port
+          nnode <- localIO $ createNode host port
           if connectit== "y" then connect'  nnode
                              else local $ addNodes [nnode]
    empty
@@ -100,19 +100,21 @@ inputNodes= do
 --
 --
 simpleWebApp :: Integer -> Cloud () -> IO ()
-simpleWebApp port app =  keep $ initWebApp (createNode "localhost" port) app
+simpleWebApp port app = do
+   node <- createNode "localhost" port
+   keep $ initWebApp node app
 
 -- | use this instead of smpleWebApp when you have to do some initializations in the server prior to the
 -- initialization of the web server
 initWebApp :: Node -> Cloud () -> TransIO ()
 initWebApp node app=  do
-    let conn= defConnection 8192
+    conn <- defConnection
     setData  conn{myNode = node}
-    serverNode  <-  getWebServerNode  :: TransIO Node
+    serverNode  <-   getWebServerNode  :: TransIO Node
 
-    let mynode = if isBrowserInstance
-                    then createWebNode
-                    else serverNode
+    mynode <- if isBrowserInstance
+                    then liftIO $ createWebNode
+                    else return serverNode
 
     runCloud $ do
         listen mynode <|> return()
@@ -135,6 +137,6 @@ onServer x= do
 -- | run N nodes (N ports to listen) in the same program. For testing purposes.
 -- It add them to the list of known nodes, so it is possible to perform `clustered` operations with them.
 runTestNodes ports= do
-    let nodes=  map (\p -> createNode "localhost" p) ports
+    nodes <- onAll $  mapM (\p -> liftIO $ createNode "localhost" p) ports
     foldl (<|>) empty (map listen nodes) <|> return()
 

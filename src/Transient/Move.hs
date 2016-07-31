@@ -42,7 +42,7 @@ addNodes, shuffleNodes,
 
 ) where
 import Transient.Base
-import Transient.Internals(IDynamic(..),killChildren,getCont,runCont,EventF(..),LogElem(..),Log(..)
+import Transient.Internals((!>),IDynamic(..),killChildren,getCont,runCont,EventF(..),LogElem(..),Log(..)
        ,onNothing,RemoteStatus(..),getCont,StateIO,readsPrec')
 import Transient.Logged
 import Transient.Indeterminism(choose)
@@ -444,7 +444,7 @@ wormhole node (Cloud comp) = local $ Transient $ do
    if not rec                                    --  !> ("wormhole recovery", rec)
             then runTrans $ (do
 
-                    conn <-  mconnect node       --  !> (mynode,"connecting node ",  node)
+                    conn <-  mconnect node         !> (mynode,"connecting node ",  node)
                     setData  conn{calling= True}
 #ifdef ghcjs_HOST_OS
                     addPrefix    -- for the DOM identifiers
@@ -571,7 +571,7 @@ mclose (Connection _ (Just (Web2Node sconn)) _ _ blocked _ _)=
 
 mconnect :: Node -> TransIO  Connection
 mconnect  node@(Node _ _ _ _ )=  do
-  nodes <- getNodes
+  nodes <- getNodes !> ("connecting node", node)
 
   let fnode =  filter (==node) nodes
   case fnode of
@@ -583,7 +583,7 @@ mconnect  node@(Node _ _ _ _ )=  do
     case plist  of
       handle:_ -> do
                   delData $ Closure undefined
-                  return  handle                        -- !>   "REUSED!"
+                  return  handle                         !>   ("REUSED!", node)
 
       _ -> do
 --        liftIO $ putStr "*****CONNECTING NODE: " >> print node
@@ -594,9 +594,10 @@ mconnect  node@(Node _ _ _ _ )=  do
 
         conn <- liftIO $ do
           let size=8192
-          sock <-  connectTo' size  host $ PortNumber $ fromIntegral port  --   !> ("CONNECTING ",node)
+          sock <-  connectTo' size  host $ PortNumber $ fromIntegral port
+                       !> ("CONNECTING ",port)
 
-          let conn= (defConnection 8100){myNode=my,comEvent= ev,connData= Just $ Node2Node u  sock (error $ "addr: outgoing connection")}
+          conn <- defConnection >>= \c -> return c{myNode=my,comEvent= ev,connData= Just $ Node2Node u  sock (error $ "addr: outgoing connection")}
 
           SBS.send sock "CLOS a b\n\n"   -- !> "sending CLOS"
 
@@ -607,7 +608,7 @@ mconnect  node@(Node _ _ _ _ )=  do
         conn <- do
 
           ws <- connectToWS host $ PortNumber $ fromIntegral port
-          let conn= (defConnection 8100){comEvent= ev,connData= Just $ Web2Node ws}
+          conn <- defConnection >>= \c -> return c{comEvent= ev,connData= Just $ Web2Node ws}
 
           return conn    -- !>  ("websocker CONNECION")
 #endif
@@ -793,21 +794,22 @@ cleanMailbox name witness= do
 
 
 
-defConnection :: Int -> Connection
+defConnection :: MonadIO m => m Connection
 
 -- #ifndef ghcjs_HOST_OS
-defConnection size=
-  Connection (createNode "program" 0) Nothing  size
+defConnection = liftIO $ do
+  x <- newMVar ()
+  y <- newMVar M.empty
+  return $ Connection (error "node in default connection") Nothing  8192
                  (error "defConnection: accessing network events out of listen")
-                 (unsafePerformIO $ newMVar ())
-                 False (unsafePerformIO $ newMVar M.empty)
+                 x  False (y)
 
 
 
 #ifndef ghcjs_HOST_OS
 setBuffSize :: Int -> TransIO ()
 setBuffSize size= Transient $ do
-   conn<- getData `onNothing` return (defConnection 8192)
+   conn<- getData `onNothing`  defConnection
    setData $ conn{bufferSize= size}
    return $ Just ()
 
@@ -823,7 +825,7 @@ listen  (node@(Node _   port _ _ )) = onAll $ do
 
    setData $ Log False [] []
 
-   conn' <- getSData <|> return (defConnection 8192)
+   conn' <- getSData <|> defConnection
    ev <- liftIO $ newIORef M.empty
    let conn= conn'{myNode=node, comEvent=ev}
 
@@ -836,7 +838,7 @@ listen  (node@(Node _   port _ _ )) = onAll $ do
 
 
 
-listenNew port conn= do --  node bufSize events blocked port= do
+listenNew port conn= do
 
 
    sock <- liftIO . listenOn  $ PortNumber port
@@ -856,7 +858,7 @@ listenNew port conn= do --  node bufSize events blocked port= do
 
    initFinish
    onFinish $ const $ do
-             return()                                 -- !> "onFinish closures receivedd with LISTEN"
+--             return()                   !> "onFinish closures receivedd with LISTEN"
              let Connection{closures=closures}= conn  -- !> "listenNew closures empty"
              liftIO $ modifyMVar_ closures $ const $ return M.empty
 
@@ -990,18 +992,21 @@ emptyPool :: MonadIO m => m (MVar Pool)
 emptyPool= liftIO $ newMVar  []
 
 
-createNodeServ :: HostName -> Integer -> [Service] -> Node
-createNodeServ h p svs= Node h ( fromInteger p) (unsafePerformIO emptyPool) svs
+createNodeServ ::  HostName -> Integer -> [Service] -> IO Node
+createNodeServ h p svs= do
+    pool <- emptyPool
+    return $ Node h ( fromInteger p) pool svs
 
 
 
 
-createNode :: HostName -> Integer -> Node
+createNode :: HostName -> Integer -> IO Node
 createNode h p= createNodeServ h p []
 
-createWebNode :: Node
-createWebNode= Node "webnode" ( fromInteger 0) (unsafePerformIO emptyPool)
-                      [("webnode","")]
+createWebNode :: IO Node
+createWebNode= do
+  pool <- emptyPool
+  return $ Node "webnode" ( fromInteger 0) pool  [("webnode","")]
 
 
 instance Eq Node where
@@ -1153,10 +1158,10 @@ connect  node  remotenode =   do
 -- | synchronize the list of nodes with a remote node and all the nodes connected to it
 -- the final effect is that all the nodes reachable share the same list of nodes
 connect'  remotenode= do
-    nodes <- local $ getNodes
+    nodes <- local getNodes
     local $ liftIO $ putStrLn $ "connecting to: "++ show remotenode
 
-    newNodes <- runAt remotenode $  do
+    newNodes <- runAt remotenode $ do
            local $ do
               conn@(Connection _(Just (Node2Node _ _ _)) _ _ _ _ _) <- getSData <|>
                error ("connect': need to be connected to a node: use wormhole/connect/listen")

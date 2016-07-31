@@ -28,18 +28,19 @@ import System.Exit
 #define shouldRun(x) (local $ getMyNode >>= \(Node _ p _ _) -> assert ( p == (x)) (return ()))
 
 
+
 main= do
      let numNodes = 4
          ports = [2000 .. 2000 + numNodes - 1]
          createLocalNode = createNode "localhost"
-         nodes = map createLocalNode ports
-         n2000= head nodes
+     nodes <- mapM createLocalNode ports
+     let n2000= head nodes
          n2001= nodes !! 1
          n2002= nodes !! 2
          n2003= nodes !! 3
      r <-runCloudIO $ do
           runNodes nodes
-          local $ option "s" "start"
+--          local $ option "s" "start"
 
           local $ do
               liftIO $ putStrLn "--------------checking  parallel execution, events --------"
@@ -48,16 +49,8 @@ main= do
 
               assert (sort r== [1,2,3]) $ liftIO $ print r
 
-          lliftIO $ putStrLn "--------------checking Applicative distributed--------"
-          r <- loggedc $(runAt n2000 (shouldRun(2000) >> return "hello "))
-                    <>  (runAt n2001 (shouldRun(2001) >> return "world " ))
-                    <>  (runAt n2002 (shouldRun (2002) >> return "world2" ))
-          localIO $ print r
-          assert(r== "hello world world2") $ lliftIO $ print r
 
-
-
-          lliftIO $ putStrLn "------checking Alternative distributed--------"
+          localIO $ putStrLn "------checking Alternative distributed--------"
           r <- local $ collect' 3 1 0 $
                    runCloud $ (runAt n2000 (shouldRun(2000) >> return "hello"))
                          <|>  (runAt n2001 (shouldRun(2001) >> return "world" ))
@@ -66,6 +59,12 @@ main= do
           loggedc $  assert(sort r== ["hello", "world","world2"]) $ lliftIO $  print r
 
 
+          lliftIO $ putStrLn "--------------checking Applicative distributed--------"
+          r <- loggedc $(runAt n2000 (shouldRun(2000) >> return "hello "))
+                    <>  (runAt n2001 (shouldRun(2001) >> return "world " ))
+                    <>  (runAt n2002 (shouldRun(2002) >> return "world2" ))
+          localIO $ print r
+          assert(r== "hello world world2") $ lliftIO $ print r
 
 
 
