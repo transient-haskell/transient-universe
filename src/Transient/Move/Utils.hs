@@ -50,13 +50,13 @@ import Data.IORef
 --
 initNode :: Cloud () -> TransIO ()
 initNode app= do
-   node <- getPort
+   node <- getNodeParams
    initWebApp node  app
 
 
   where
-  getPort :: TransIO Node
-  getPort =
+  getNodeParams  :: TransIO Node
+  getNodeParams  =
       if isBrowserInstance then  liftIO createWebNode else do
           oneThread $ option "start" "re/start node"
           host <- input (const True) "hostname of this node (must be reachable): "

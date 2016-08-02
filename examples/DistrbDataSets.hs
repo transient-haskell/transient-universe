@@ -20,7 +20,6 @@ import qualified Data.Vector as V
 main= do
      let numNodes = 5
      runCloudIO $ do
-              setData $ defConnection 2000
               runTestNodes [2000 .. 2000 + numNodes - 1]
 
 
