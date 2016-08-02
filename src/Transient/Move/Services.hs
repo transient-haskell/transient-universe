@@ -35,21 +35,6 @@ import Data.Maybe
 import Data.Monoid
 --import Data.TCache hiding(onNothing)
 
--- for the example
-import System.Environment
-
---startServices :: Cloud ()
---startServices= local $ do
---  node <-  getMyNode
---  liftIO $ print node
---  let servs =   nodeServices node
---  mapM_ start  servs
---  where
---  start (package,program)= liftIO $ do
---          let prog= pathExe (name package) program port
---          liftIO $ print prog
---          createProcess $ shell prog
-
 
 pathExe package program port= {-"./"++package++"/dist/build/"++package++"/"++  -} program
                                        ++ " -p start/" ++ show port

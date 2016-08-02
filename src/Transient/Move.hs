@@ -381,10 +381,11 @@ foreign import javascript safe
 
 
 getWebServerNode :: TransIO Node
-getWebServerNode = liftIO $
+getWebServerNode = liftIO $ do
 
-   createNode   <$> (fromJSValUnchecked js_hostname)
-                <*> (fromIntegral <$> (fromJSValUnchecked js_port :: IO Int))
+   h <- fromJSValUnchecked js_hostname
+   p <- fromIntegral <$> (fromJSValUnchecked js_port :: IO Int)
+   createNode h p
 
 
 
@@ -926,7 +927,7 @@ execLog mlog = Transient $ do
 listen node = onAll $ do
         addNodes [node]
         events <- liftIO $ newIORef M.empty
-        let conn=  (defConnection 8192){myNode=node,comEvent=events}
+        conn <-  defConnection >>= \c -> return c{myNode=node,comEvent=events}
         setData conn
         r <- listenResponses
         execLog r
