@@ -17,7 +17,7 @@ module Transient.Move.Services  where
 import Transient.Base
 import Transient.Move
 import Transient.Logged(Loggable(..))
-import Transient.Internals((!>),RemoteStatus(..), Log(..))
+import Transient.Internals(RemoteStatus(..), Log(..))
 import Transient.Move.Utils
 
 import Transient.EVars
@@ -56,10 +56,11 @@ pathExe package program port= {-"./"++package++"/dist/build/"++package++"/"++  -
 
 install :: String  -> String -> Int -> Cloud ()
 install package program port =  do
+     exist <- localIO $ findExecutable program -- liftIO $ doesDirectoryExist  packagename
      let packagename = name package
-     when (null packagename) $ error $ "source for \""++package ++ "\" not found"
-     exist <- local $ liftIO $ doesDirectoryExist  packagename
-     when (not exist) $ local $ liftIO $ do
+     when (isNothing exist) $ local $ liftIO $ do
+
+         when (null packagename) $ error $ "source for \""++package ++ "\" not found"
          callProcess  "git" ["clone",package]
          liftIO $ putStr package >> putStrLn " cloned"
          setCurrentDirectory packagename
@@ -88,37 +89,44 @@ freePort= liftIO $ modifyMVar rfreePort $ \ n -> return (n+1,n)
 initService ident service@(package, program)= loggedc $ do
     nodes <- local getNodes
     case find (\node  -> service `elem` nodeServices node) nodes  of
-       Just node -> return node !> "found"
+       Just node -> return node                 -- !> "found"
        Nothing -> do
 
-          node <- runAt (head nodes) $  do local $  liftIO $ createNode "localhost" 0
---                    thisNode <- local getMyNode
---                    yn<- requestService ident service
---                    if yn  !> yn then do
---                        port <- onAll freePort
---                        return () !> "install"
---                        install package program  port
---                        nodeService thisNode port
---                      else empty
-          local $ addNodes nodes
-          return $ head nodes    !> ("GENERATED NODE", nodes)
+          node <- runAt (head nodes)  $ do
+                    thisNode <- local getMyNode
+                    yn<- requestService ident service
+                    if yn   then do
+                        port <- onAll freePort
+                        localIO $ putStr "installing " >> putStrLn package
+                        install package program  port
+                        nodeService thisNode port
+                      else empty
+          local $ addNodes [node]
+          return node
     where
-    nodeService (Node h _ _ _) port= local $
-       return [Node h port (unsafePerformIO $ newMVar []) [service] ]
+    nodeService (Node h _ _ _) port= localIO $ do
+       pool <- newMVar []
+       return $ Node h port pool [service]
 
+callOne :: Loggable a =>  Cloud a ->  Cloud a
+callOne = callNodes after empty
 
+after mx my= waitone mx <|> my
+  where
+  waitone mx = local $ do
+       rs <- collect' 1 1 0 $ runCloud mx
+       return $ head rs
 
-callOne mx= callNodes' (<>) empty mx
- where
-
- callNodes' op init proc= loggedc $ do
-    nodes <-  local getNodes
-    let nodes' = filter (not . isWebNode) nodes
-    foldr op init $ map (\node -> runAt node $ proc node) nodes'  :: Cloud [Node]
-    where
-    isWebNode Node {nodeServices=srvs}
-         | ("webnode","") `elem` srvs = True
-         | otherwise = False
+-- where
+--
+-- callNodes' op init proc= loggedc $ do
+--    nodes <-  local getNodes
+--    let nodes' = filter (not . isWebNode) nodes
+--    foldr op init $ map (\node -> runAt node $ proc node) nodes'  :: Cloud [Node]
+--    where
+--    isWebNode Node {nodeServices=srvs}
+--         | ("webnode","") `elem` srvs = True
+--         | otherwise = False
 
 
 rfriends        =   unsafePerformIO $ newMVar []
@@ -145,9 +153,10 @@ callService
     :: (Loggable a, Loggable b)
     => String -> Service -> a  -> Cloud b
 callService ident service params = do
-    return() !> "callservice"
+
     node <-  initService ident service
-    localIO $ print ("node returned",node)
+
+
     log <- onAll $ do
            log  <- getSData <|> return emptyLog
            setData emptyLog
@@ -158,12 +167,10 @@ callService ident service params = do
 
              teleport
              local empty
---    return () !> ("r=",r)
+
     restoreLog log
---    local $ do
---       Log _ _ log <- getSData <|> return emptyLog
---       return() !> ("log after",log)
-    return  r -- (r `asTypeOf` witness)
+
+    return  r
     where
     restoreLog (Log _ _ logw)= onAll $ do
        Log _ _ logw' <- getSData <|> return emptyLog
@@ -215,6 +222,21 @@ runService servname serv =  do
       getPort =  if isBrowserInstance then return 0 else do
           oneThread $ option "start" "re/start node"
           input (const True) "port to listen? "
+
+{- |
+a service called monitor:
+  runService
+  receive request for a service.
+  check service in list
+  if executing return node
+  when not installed install
+  execute
+  return node
+-}
+--localServiceMonitor ident service = keep $ runCloud  $
+--    runService ("https://github.com/agocorona/transient-universe","monitor") $ do
+--       initService ident service
+
 
 
 
