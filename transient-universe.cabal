@@ -1,5 +1,5 @@
 name: transient-universe
-version: 0.3.2.3
+version: 0.3.2.4
 cabal-version: >=1.10
 build-type: Simple
 license: MIT
@@ -27,7 +27,7 @@ library
                  , text          -any
                  , time          -any
                  , transformers  -any
-                 , transient     >= 0.4
+                 , transient     >= 0.4.2
     if impl(ghcjs >=0.1)
         build-depends: ghcjs-base   -any
                      , ghcjs-prim   -any
