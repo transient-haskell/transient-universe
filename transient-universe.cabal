@@ -27,7 +27,7 @@ library
                  , text          -any
                  , time          -any
                  , transformers  -any
-                 , transient     >= 0.4
+                 , transient     >= 0.4.2
     if impl(ghcjs >=0.1)
         build-depends: ghcjs-base   -any
                      , ghcjs-prim   -any
