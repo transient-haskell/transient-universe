@@ -51,6 +51,7 @@ import Transient.Internals(IDynamic(..),killChildren,getCont,runCont,EventF(..),
        ,onNothing,RemoteStatus(..),getCont,StateIO,readsPrec')
 import Transient.Logged
 import Transient.Indeterminism(choose)
+import Transient.Backtrack
 import Transient.EVars
 import Data.Typeable
 import Control.Applicative
@@ -909,12 +910,10 @@ execLog mlog = Transient $ do
                                                          else map, M.lookup closl map)
                                                            -- !> ("closures=", M.size map)
                  case mcont of
-                   Nothing -> error ("received non existent closure: " ++  show closl)
+                   Nothing -> error ("request received for non existent closure: " ++  show closl)
                    -- execute the closure
                    Just (fulLog,cont) -> liftIO $ runStateT (do
-                                     let nlog= reverse log ++  fulLog -- dropWhile (\x -> case x of
-                                                                        --  Exec -> True
-                                                                        --  _ -> False) fulLog
+                                     let nlog= reverse log ++  fulLog
                                      setData $ Log True  log  nlog
 
                                      setData $ Closure closr
