@@ -37,7 +37,13 @@ import System.IO.Unsafe
 
 
 
-main= keep $ initNode $ test
+main= do
+  node1 <- createNode "localhost" 2000
+  node2 <- createNode "localhost" 2001
+  runCloudIO $ do
+    listen node1 <|> listen node2 <|> return ()
+    r <- local empty <|> runAt node2 (local (return "hello"))
+    localIO $ print r
 
 
 test :: Cloud ()

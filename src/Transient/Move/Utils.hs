@@ -73,12 +73,14 @@ inputNodes= do
                     r <- input (const True) "Host to connect to: (none): "
                     if r ==  "" then stop else return r
 
-          port <-  local $ input (const True) "port?"
+          port <-  local $ input (const True) "port? "
 
-          connectit <- local $ input (\x -> x=="y" || x== "n") "connect to get his list of nodes?"
+          connectit <- local $ input (\x -> x=="y" || x== "n") "connect to the node to get his list of nodes?"
           nnode <- localIO $ createNode host port
           if connectit== "y" then connect'  nnode
-                             else local $ addNodes [nnode]
+                             else  local $ do
+                               liftIO $ putStr "Added node: ">> print nnode
+                               addNodes [nnode]
    empty
 
 
@@ -109,8 +111,8 @@ simpleWebApp port app = do
 initWebApp :: Node -> Cloud () -> TransIO ()
 initWebApp node app=  do
     conn <- defConnection
-    setData  conn{myNode = node}
-    serverNode  <-   getWebServerNode  :: TransIO Node
+    setData conn{myNode = node}
+    serverNode <- getWebServerNode  :: TransIO Node
 
     mynode <- if isBrowserInstance
                     then liftIO $ createWebNode

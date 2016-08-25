@@ -22,6 +22,8 @@ import Control.Exception.Base
 import qualified Data.Map as M
 import System.Exit
 
+
+import Control.Monad.State
 #define _UPK_(x) {-# UNPACK #-} !(x)
 
 
@@ -40,30 +42,20 @@ main= do
          n2003= nodes !! 3
      r <-runCloudIO $ do
           runNodes nodes
---          local $ option "s" "start"
-
-          local $ do
-              liftIO $ putStrLn "--------------checking  parallel execution, events --------"
-              ev <- newEVar
-              r <- collect 3 $ readEVar ev <|> ((choose [1..3] >>= writeEVar ev) >> stop)
-
-              assert (sort r== [1,2,3]) $ liftIO $ print r
-
 
           localIO $ putStrLn "------checking Alternative distributed--------"
-          r <- local $ collect' 3 1 0 $
+          r <- local $ collect 3  $
                    runCloud $ (runAt n2000 (shouldRun(2000) >> return "hello"))
                          <|>  (runAt n2001 (shouldRun(2001) >> return "world" ))
                          <|>  (runAt n2002 (shouldRun(2002) >> return "world2" ))
 
           loggedc $  assert(sort r== ["hello", "world","world2"]) $ lliftIO $  print r
 
-
           lliftIO $ putStrLn "--------------checking Applicative distributed--------"
           r <- loggedc $(runAt n2000 (shouldRun(2000) >> return "hello "))
                     <>  (runAt n2001 (shouldRun(2001) >> return "world " ))
                     <>  (runAt n2002 (shouldRun(2002) >> return "world2" ))
-          localIO $ print r
+
           assert(r== "hello world world2") $ lliftIO $ print r
 
 
@@ -83,19 +75,20 @@ main= do
 
 
 
-          local $ exit ()
+
 
 
 
 
           lliftIO $ print "SUCCES"
+          local $ exit ()
 
      exitSuccess
 
 --getEffects :: Loggable a =>  Cloud [(Node, a)]
 --getEffects=lliftIO $ readIORef effects
 --
-runNodes nodes= foldl (<|>) empty (map listen nodes) <|> return()
+runNodes nodes= foldl (<|>) empty (map listen nodes) <|> return () -- (onAll $ async $ return())
 --
 --
 --delEffects= lliftIO $ writeIORef effects []

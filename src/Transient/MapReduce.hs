@@ -250,16 +250,6 @@ reduce red  (dds@(DDS mx))= loggedc $ do
                                 $ (i,map (\(k,vs) -> (k,foldl1 red vs)) kvs)
 
 
-
-
-             foldthemAndSend  ikvs  = loggedc $ do
-                  (i,folded) <-  local $ foldthem ikvs
-                  runAt (nodes !! i) $  local $ putMailbox box $ Reduce folded
-
-
-
-
-
        sendEnd nodes   = onNodes nodes . local $  putMailbox box (EndReduce `asTypeOf` paramOf dds)
                                                          -- !> ("send ENDREDUCE",mynode)
        onNodes  nodes f= foldr (<|>) empty $ map (\n -> runAt n f) nodes

@@ -16,30 +16,26 @@ import Control.Concurrent(threadDelay)
 
 
 
-main= keep $ do
-   port <- getPort
-
-   initWebApp port  $ onBrowser $ local $ render $ do
+main= keep $ initNode  $ onBrowser $ local $ render $ do
        mk cellA  (Just 1)  <|> mk cellB (Just 2)
        calc
        where
        cellA = scell "cella" $ runCloud $ do
                      lliftIO $ print "local"
-                     atRemote $ do
-                       lliftIO $ print "running cella at server"
-                       return 2
+                     atRemote $ local $ do
+                       v <- norender $ gcell "cellb"
+                       liftIO $ print "running cella at server"
+                       return $ 2 * v
 
        cellB = scell "cellb" $  runCloud $ do
                     lliftIO $ print "local2"
-                    atRemote $ do
-                      lliftIO $ print "running cellb at server"
-                      return 4
+                    atRemote $ local $ do
+                      v <- norender $ gcell "cella"
+                      liftIO $ print "running cellb at server"
+                      return $ 4 * v
 
 
-main2= keep $ do
-   port <- getPort
-
-   initWebApp port  $ onBrowser $  do
+main2= keep $ initNode  $ onBrowser $  do
 
        local $ render $ rawHtml $ h1 ("laps" :: String)
 
