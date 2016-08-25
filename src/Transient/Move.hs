@@ -451,7 +451,7 @@ wormhole node (Cloud comp) = local $ Transient $ do
    if not rec                                    --  !> ("wormhole recovery", rec)
             then runTrans $ (do
 
-                    conn <-  mconnect node         -- !> (mynode,"connecting node ",  node)
+                    conn <-  mconnect node    -- !> (mynode,"connecting node ",  node)
                     setData  conn{calling= True}
 #ifdef ghcjs_HOST_OS
                     addPrefix    -- for the DOM identifiers
@@ -576,6 +576,12 @@ mclose (Connection _ (Just (Web2Node sconn)) _ _ blocked _ _)=
 
 #endif
 
+liftIOF mx=do
+    ex <- liftIO $ (mx >>= return . Right) `catch` (\(e :: SomeException) -> return $ Left e)
+    case ex of
+      Left e -> finish $ Just e
+      Right x -> return x
+
 mconnect :: Node -> TransIO  Connection
 mconnect  node@(Node _ _ _ _ )=  do
   nodes <- getNodes                                 --  !> ("connecting node", node)
@@ -599,7 +605,7 @@ mconnect  node@(Node _ _ _ _ )=  do
         Connection{comEvent= ev} <- getSData <|> error "connect: listen not set for this node"
 #ifndef ghcjs_HOST_OS
 
-        conn <- liftIO $ do
+        conn <- liftIOF $ do
           let size=8192
           sock <-  connectTo' size  host $ PortNumber $ fromIntegral port
                       -- !> ("CONNECTING ",port)
@@ -631,6 +637,8 @@ mconnect  node@(Node _ _ _ _ )=  do
         return  conn
 
   where u= undefined
+
+
 
 -- mconnect _ = empty
 
@@ -839,7 +847,7 @@ listenNew port conn= do
            killOnFinish $ parallel $ do
                msg <- WS.receiveData sconn             -- WebSockets
                return . read $ BC.unpack msg
---                                                      !> ("Server WebSocket msg read",msg)  !> "<-------<---------<--------------"
+--                !> ("Server WebSocket msg read",msg)  !> "<-------<---------<--------------"
 
 
 
@@ -1093,7 +1101,7 @@ mclustered proc= callNodes (<>) mempty proc
 callNodes op init proc= loggedc $ do
     nodes <-  local getNodes
     let nodes' = filter (not . isWebNode) nodes
-    foldr op init $ map (\node -> runAt node proc) nodes'  -- !> ("mclustered",nodes')
+    foldr op init $ map (\node -> runAt node proc) nodes'
     where
     isWebNode Node {nodeServices=srvs}
          | ("webnode","") `elem` srvs = True
@@ -1121,7 +1129,6 @@ connect'  remotenode= do
                error ("connect': need to be connected to a node: use wormhole/connect/listen")
               let nodeConnecting= head nodes
               liftIO $ modifyMVar_ (connection nodeConnecting) $ const $ return [conn]
-
 
               onFinish . const $ do
                    liftIO $ putStrLn "removing node: ">> print nodeConnecting
