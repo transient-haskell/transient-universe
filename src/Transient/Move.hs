@@ -512,7 +512,9 @@ teleport =  do
 
          --set his own closure in his Node data
 
-         let closLocal = sum $ map (\x-> case x of Wait-> 1000; _ -> 1) fulLog
+         let closLocal = sum $ map (\x-> case x of Wait -> 100000;
+                                                   Exec -> 1000
+                                                   _ -> 1) fulLog
 --         closLocal  <-   liftIO $ randomRIO (0,1000000)
 
          liftIO $ modifyMVar_ closures $ \map -> return $ M.insert closLocal (fulLog,cont) map
