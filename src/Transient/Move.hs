@@ -599,26 +599,21 @@ liftIOF mx=do
       Right x -> return x
 
 mconnect :: Node -> TransIO  Connection
-mconnect  node@(Node _ _ _ _ )=  do
+mconnect  node@Node{} =  do
   nodes <- getNodes                                 --  !> ("connecting node", node)
-
   let fnode =  filter (==node) nodes
   case fnode of
    [] -> addNodes [node] >> mconnect node
-   [Node host port  pool _] -> do
-
-
-    plist <- liftIO $ readMVar pool
-    case plist  of
-      handle:_ -> do
-                  delData $ Closure undefined
-                  return  handle                       --  !>   ("REUSED!", node)
-
-      _ -> do
---        liftIO $ putStr "*****CONNECTING NODE: " >> print node
-        my <- getMyNode
---        liftIO  $ putStr "OPENING CONNECTION WITH :" >> print port
-        Connection{comEvent= ev} <- getSData <|> error "connect: listen not set for this node"
+   Node host port pool _:_ -> do
+     plist <- liftIO $ readMVar pool
+     case plist of
+       handle':_ -> do
+         delData (Closure undefined)
+         return handle'                       --  !>   ("REUSED!", node)
+       _ -> do
+         my <- getMyNode
+         Connection { comEvent = ev } <-
+           getSData <|> error "connect: listen not set for this node"
 #ifndef ghcjs_HOST_OS
 
         conn <- liftIOF $ do
@@ -652,9 +647,8 @@ mconnect  node@(Node _ _ _ _ )=  do
 
         return  conn
 
-  where u= undefined
-
-
+  where
+    u = undefined
 
 -- mconnect _ = empty
 
