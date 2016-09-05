@@ -123,6 +123,8 @@ import Data.Dynamic
 import Data.String
 
 
+type EventMapRef = IORef (M.Map T.Text (EVar Dynamic))
+
 #ifdef ghcjs_HOST_OS
 type HostName  = String
 newtype PortID = PortNumber Int deriving (Read, Show, Eq, Typeable)
