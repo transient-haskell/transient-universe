@@ -614,41 +614,34 @@ mconnect  node@Node{} =  do
          my <- getMyNode
          Connection { comEvent = ev } <-
            getSData <|> error "connect: listen not set for this node"
-#ifndef ghcjs_HOST_OS
-
-        conn <- liftIOF $ do
-          let size=8192
-          sock <-  connectTo' size  host $ PortNumber $ fromIntegral port
-                      -- !> ("CONNECTING ",port)
-
-          conn <- defConnection >>= \c -> return c{myNode=my,comEvent= ev,connData= Just $ Node2Node u  sock (error $ "addr: outgoing connection")}
-
-          SBS.send sock "CLOS a b\n\n"   -- !> "sending CLOS"
-
-
-          return conn
-
-#else
-        conn <- do
-
-          ws <- connectToWS host $ PortNumber $ fromIntegral port
-          conn <- defConnection >>= \c -> return c{comEvent= ev,connData= Just $ Web2Node ws}
-
-          return conn    -- !>  ("websocker CONNECION")
-#endif
-        liftIO $ modifyMVar_ pool $  \plist -> return $ conn:plist
-
-        putMailbox "connections" (conn,node)
-
-        delData $ Closure undefined
-
-
-
-
-        return  conn
-
+         conn <- getConnection my host ev port
+         liftIO . modifyMVar_ pool $  \cs -> return (conn:cs)
+         putMailbox "connections" (conn,node)
+         delData $ Closure undefined
+         return  conn
   where
     u = undefined
+    getConnection :: Node -> HostName -> EventMapRef -> Int ->TransIO Connection
+#ifndef ghcjs_HOST_OS
+    getConnection n h ev p = liftIOF $
+      do let size = 8192
+         sock <-  connectTo' size  h (PortNumber $ fromIntegral p)
+         conn <- defConnection >>= \c ->
+           return c { myNode   = n
+                    , comEvent = ev
+                    , connData = Just $
+                        Node2Node u sock (error "addr: outgoing connection")
+                    }
+         SBS.send sock "CLOS a b\n\n"
+         return conn
+#else
+    getConnection _ h ev p =
+      do ws <- connectToWS h (PortNumber $ fromIntegral p)
+         defConnection >>= \c ->
+           return c { comEvent = ev
+                    , connData = Just $ Web2Node ws
+                    }
+#endif
 
 -- mconnect _ = empty
 
