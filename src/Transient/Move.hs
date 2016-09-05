@@ -595,8 +595,8 @@ liftIOF :: IO b -> TransIO b
 liftIOF mx=do
     ex <- liftIO $ (mx >>= return . Right) `catch` (\(e :: SomeException) -> return $ Left e)
     case ex of
-      Left e -> finish $ Just e
       Right x -> return x
+      Left  e -> finish (Just e)
 
 mconnect :: Node -> TransIO  Connection
 mconnect  node@Node{} =  do
