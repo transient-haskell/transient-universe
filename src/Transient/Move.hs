@@ -47,8 +47,7 @@ addNodes, shuffleNodes,
 
 ) where
 import Transient.Base
-import Transient.Internals(IDynamic(..),killChildren,getCont,runCont,EventF(..),LogElem(..),Log(..)
-       ,onNothing,RemoteStatus(..),getCont,StateIO,readsPrec')
+import Transient.Internals hiding ((!>))
 import Transient.Logged
 import Transient.Indeterminism(choose)
 import Transient.Backtrack
@@ -578,6 +577,7 @@ mclose (Connection _ (Just (Web2Node sconn)) _ _ blocked _ _)=
 
 #endif
 
+liftIOF :: IO b -> TransIO b
 liftIOF mx=do
     ex <- liftIO $ (mx >>= return . Right) `catch` (\(e :: SomeException) -> return $ Left e)
     case ex of

@@ -21,15 +21,15 @@ app= onBrowser $ local $ render $ do
        where
        size= atr "size"
 
-       space = scell "space" $ runCloud $ atRemote $ local $ do
+       space = scell "space" $ do -- runCloud $ atRemote $ local $ do
                       liftIO $ print "running cella at server"
                       norender $ gcell "speed" * gcell "time"
 
-       time  = scell "time" $  runCloud $ atRemote $ local $ do
+       time  = scell "time" $  do -- runCloud $ atRemote $ local $ do
                       liftIO $ print "running cellb at server"
-                      norender $ gcell "space" / gcell "speed"
+                      norender $ gcell "space"  / gcell "speed"
 
-       speed = scell "speed" $ runCloud $ atRemote $ local $ do
+       speed = scell "speed" $ do -- runCloud $ atRemote $ local $ do
                       liftIO $ print "running cellc at server"
                       norender $ gcell "space" / gcell "time"
 
