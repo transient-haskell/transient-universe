@@ -79,15 +79,16 @@ chat=  onBrowser $  do
 
     let chatMessages= fs "chatMessages"
 
-    local . render . rawHtml $ div ! id (fs "chatbox")
-                                   ! style (fs "margin-top:1cm;overflow: auto;height: 200px;background-color: #FFCC99; max-height: 200px;")
-                                   $ noHtml  -- create the chat box
+    local . render . rawHtml $
+            div ! id (fs "chatbox")
+                ! style (fs $"margin-top:1cm;overflow: auto;height: 200px;"
+                         ++  "background-color: #FFCC99; max-height: 200px;")
+                $ noHtml  -- create the chat box
 
     sendMessages chatMessages <|>  waitMessages chatMessages
 
   where
   sendMessages chatMessages = do
---      local $ initFinish >> return ()
       let entry= boxCell (fs "msg") ! atr "size"  (fs "90")
       text <- local . render $ (mk entry Nothing )  `fire` OnChange
                 <** inputSubmit "send"
@@ -109,6 +110,7 @@ chat=  onBrowser $  do
                                           p (resp :: String)    -- display the response
 #ifdef ghcjs_HOST_OS
                                           liftIO $ scrollBottom $ fs "chatbox"
+
 
 foreign import javascript unsafe
   "var el= document.getElementById($1);el.scrollTop=  el.scrollHeight"

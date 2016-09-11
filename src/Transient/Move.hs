@@ -179,11 +179,11 @@ local =  Cloud . logged
 
 -- #ifndef ghcjs_HOST_OS
 -- | run the cloud computation.
-runCloudIO :: Cloud a -> IO a
+runCloudIO :: Typeable a =>  Cloud a -> IO a
 runCloudIO (Cloud mx)= keep mx
 
 -- | run the cloud computation with no console input
-runCloudIO' :: Cloud a -> IO a
+runCloudIO' :: Typeable a =>  Cloud a -> IO a
 runCloudIO' (Cloud mx)= keep' mx
 
 -- #endif
@@ -490,8 +490,20 @@ addPrefix= Transient $ do
    return $ Just ()
 
 
--- | translates computations back and forth
+-- | translates computations back and forth between two nodes
 -- reusing a connection opened by `wormhole`
+--
+-- each teleport transport to the other node what is new in the log since the
+-- last teleport
+--
+-- It is used trough other primitives like  `runAt` which involves two teleports:
+--
+-- runAt node= wormhole node $ loggedc $ do
+-- >     teleport
+-- >     r <- Cloud $ runCloud proc <** setData WasRemote
+-- >     teleport
+-- >     return r
+
 teleport ::   Cloud ()
 teleport =  do
   local $ Transient $ do
