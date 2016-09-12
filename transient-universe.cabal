@@ -71,4 +71,3 @@ executable   monitorService
  else
     main-is : void.hs
     build-depends: base
-
