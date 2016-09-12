@@ -61,7 +61,7 @@ library
     hs-source-dirs: src .
 
 
-executable   monitorService
+executable monitorService
  if !impl(ghcjs >=0.1)
     main-is :      MonitorService.hs
     build-depends: base >4 && <5, transient, transient-universe, transformers
