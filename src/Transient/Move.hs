@@ -181,12 +181,12 @@ local =  Cloud . logged
 
 -- #ifndef ghcjs_HOST_OS
 -- | run the cloud computation.
-runCloudIO :: Typeable a =>  Cloud a -> IO a
-runCloudIO (Cloud mx)= keep mx
+runCloudIO :: Typeable a => Cloud a -> IO a
+runCloudIO (Cloud mx) = keep mx
 
 -- | run the cloud computation with no console input
-runCloudIO' :: Typeable a =>  Cloud a -> IO a
-runCloudIO' (Cloud mx)= keep' mx
+runCloudIO' :: Typeable a => Cloud a -> IO a
+runCloudIO' (Cloud mx) = keep' mx
 
 -- #endif
 
