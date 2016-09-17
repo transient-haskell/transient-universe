@@ -644,12 +644,12 @@ mconnect  node@Node{} =
          SBS.send sock "CLOS a b\n\n"
          return conn
 #else
-  getConnection _ h ev p =
-    do ws <- connectToWS h (PortNumber $ fromIntegral p)
-       defConnection >>= \c ->
-         return c { comEvent = ev
-                  , connData = Just (Web2Node ws)
-                  }
+    getConnection _ h ev p =
+      do ws <- connectToWS h (PortNumber $ fromIntegral p)
+         defConnection >>= \c ->
+           return c { comEvent = ev
+                    , connData = Just (Web2Node ws)
+                    }
 #endif
 
 
