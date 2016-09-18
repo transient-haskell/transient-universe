@@ -10,9 +10,15 @@
 --
 -- | see <https://www.fpcomplete.com/user/agocorona/moving-haskell-processes-between-nodes-transient-effects-iv>
 -----------------------------------------------------------------------------
-{-# LANGUAGE DeriveDataTypeable , ExistentialQuantification, OverloadedStrings
-    ,ScopedTypeVariables, StandaloneDeriving, RecordWildCards, FlexibleContexts, CPP
-    ,GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE CPP                        #-}
+{-# LANGUAGE DeriveDataTypeable         #-}
+{-# LANGUAGE ExistentialQuantification  #-}
+{-# LANGUAGE FlexibleContexts           #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE OverloadedStrings          #-}
+{-# LANGUAGE RecordWildCards            #-}
+{-# LANGUAGE ScopedTypeVariables        #-}
+{-# LANGUAGE StandaloneDeriving         #-}
 module Transient.Move(
 
 Cloud(..),runCloudIO, runCloudIO',local,onAll,lazy, loggedc, lliftIO,localIO,
@@ -123,6 +129,10 @@ import Data.Dynamic
 import Data.String
 
 
+-- * Handful Aliases.
+
+type EventMapRef = IORef (M.Map T.Text (EVar Dynamic))
+
 #ifdef ghcjs_HOST_OS
 type HostName  = String
 newtype PortID = PortNumber Int deriving (Read, Show, Eq, Typeable)
@@ -179,12 +189,12 @@ local =  Cloud . logged
 
 -- #ifndef ghcjs_HOST_OS
 -- | run the cloud computation.
-runCloudIO :: Typeable a =>  Cloud a -> IO a
-runCloudIO (Cloud mx)= keep mx
+runCloudIO :: Typeable a => Cloud a -> IO a
+runCloudIO (Cloud mx) = keep mx
 
 -- | run the cloud computation with no console input
-runCloudIO' :: Typeable a =>  Cloud a -> IO a
-runCloudIO' (Cloud mx)= keep' mx
+runCloudIO' :: Typeable a => Cloud a -> IO a
+runCloudIO' (Cloud mx) = keep' mx
 
 -- #endif
 
@@ -590,72 +600,57 @@ mclose (Connection _ (Just (Web2Node sconn)) _ _ blocked _ _)=
 #endif
 
 liftIOF :: IO b -> TransIO b
-liftIOF mx=do
-    ex <- liftIO $ (mx >>= return . Right) `catch` (\(e :: SomeException) -> return $ Left e)
-    case ex of
-      Left e -> finish $ Just e
-      Right x -> return x
+liftIOF mx =
+  do ex <- liftIO $
+       fmap Right mx `catch` (\(e :: SomeException) -> return $ Left e)
+     case ex of
+       Right x -> return x
+       Left  e -> finish (Just e)
 
-mconnect :: Node -> TransIO  Connection
-mconnect  node@(Node _ _ _ _ )=  do
-  nodes <- getNodes                                 --  !> ("connecting node", node)
-
-  let fnode =  filter (==node) nodes
-  case fnode of
-   [] -> addNodes [node] >> mconnect node
-   [Node host port  pool _] -> do
-
-
-    plist <- liftIO $ readMVar pool
-    case plist  of
-      handle:_ -> do
-                  delData $ Closure undefined
-                  return  handle                       --  !>   ("REUSED!", node)
-
-      _ -> do
---        liftIO $ putStr "*****CONNECTING NODE: " >> print node
-        my <- getMyNode
---        liftIO  $ putStr "OPENING CONNECTION WITH :" >> print port
-        Connection{comEvent= ev} <- getSData <|> error "connect: listen not set for this node"
+mconnect :: Node -> TransIO Connection
+mconnect  node@Node{} =
+  do nodes <- getNodes
+     let fnode =  filter (==node) nodes
+     case fnode of
+       []         -> addNodes [node] >> mconnect node
+       Node{..}:_ ->
+         do let pool = connection -- `connection` is a function of `Node`.
+            plist <- liftIO $ readMVar pool
+            conn <- case plist of
+              handle':_ -> return handle'
+              _         ->
+                do my <- getMyNode
+                   Connection { comEvent = ev } <-
+                     getSData <|> error "connect: listen not set for this node"
+                   c <- getConnection my nodeHost ev nodePort
+                   liftIO . modifyMVar_ pool $ \cs -> return (c:cs)
+                   putMailbox "connections" (c, node)
+                   return c
+            delData $ Closure undefined
+            return conn
+  where
+    getConnection :: Node -> HostName -> EventMapRef -> Int -> TransIO Connection
 #ifndef ghcjs_HOST_OS
-
-        conn <- liftIOF $ do
-          let size=8192
-          sock <-  connectTo' size  host $ PortNumber $ fromIntegral port
-                      -- !> ("CONNECTING ",port)
-
-          conn <- defConnection >>= \c -> return c{myNode=my,comEvent= ev,connData= Just $ Node2Node u  sock (error $ "addr: outgoing connection")}
-
-          SBS.send sock "CLOS a b\n\n"   -- !> "sending CLOS"
-
-
-          return conn
-
+    getConnection n h ev p = liftIOF $
+      do let s = 8192
+             u = undefined
+         sock <- connectTo' s h (PortNumber $ fromIntegral p)
+         conn <- defConnection >>= \c ->
+           return c { myNode   = n
+                    , comEvent = ev
+                    , connData = Just $
+                        Node2Node u sock (error "addr: outgoing connection")
+                    }
+         SBS.send sock "CLOS a b\n\n"
+         return conn
 #else
-        conn <- do
-
-          ws <- connectToWS host $ PortNumber $ fromIntegral port
-          conn <- defConnection >>= \c -> return c{comEvent= ev,connData= Just $ Web2Node ws}
-
-          return conn    -- !>  ("websocker CONNECION")
+    getConnection _ h ev p =
+      do ws <- connectToWS h (PortNumber $ fromIntegral p)
+         defConnection >>= \c ->
+           return c { comEvent = ev
+                    , connData = Just (Web2Node ws)
+                    }
 #endif
-        liftIO $ modifyMVar_ pool $  \plist -> return $ conn:plist
-
-        putMailbox "connections" (conn,node)
-
-        delData $ Closure undefined
-
-
-
-
-        return  conn
-
-  where u= undefined
-
-
-
--- mconnect _ = empty
-
 
 
 #ifndef ghcjs_HOST_OS

@@ -50,3 +50,4 @@ tramp
 *.key
 _darcs
 darcs*
+/src/style.css
