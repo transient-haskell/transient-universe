@@ -41,8 +41,8 @@ library
                    transformers        -any,
                    transient           >=0.4.4
     if impl(ghcjs >=0.1)
-        build-depends: ghcjs-base -any,
-                       ghcjs-prim -any
+        build-depends: ghcjs-base =0.2.0.0,
+                       ghcjs-prim =0.1.0.0
     else
         build-depends: HTTP                -any,
                        TCache              -any,
