@@ -1,4 +1,4 @@
-resolver: lts-6.6
+resolver: lts-6.18
 packages:
 - '.'
 - location:
@@ -8,10 +8,11 @@ packages:
 extra-package-dbs: []
 flags: {}
 
-compiler: ghcjs-0.2.0.20160917_ghc-7.10.3
+compiler: ghcjs-0.2.0.9006018_ghc-7.10.3
 compiler-check: match-exact
 setup-info:
   ghcjs:
     source:
-      ghcjs-0.2.0.20160917_ghc-7.10.3:
-         url: http://ghcjs.luite.com/master-20160917.tar.gz
+      ghcjs-0.2.0.9006018_ghc-7.10.3:
+         url: http://tolysz.org/ghcjs/lts-6.18-9006018.tar.gz
+         sha1: 3e9f345116c851349a5a551ffd94f7e0b74bfabb
