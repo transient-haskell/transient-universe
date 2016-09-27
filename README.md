@@ -1,4 +1,4 @@
-![](https://raw.githubusercontent.com/agocorona/transient/master/logo.ico)
+![](https://raw.githubusercontent.com/agocorona/transient-universe/master/logo.ico)
 
 See the [Wiki](https://github.com/agocorona/transient/wiki)
 
