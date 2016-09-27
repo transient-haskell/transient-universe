@@ -33,6 +33,9 @@ There is a runnable example: [DistrbDataSets.hs](https://github.com/agocorona/tr
 
 It uses a number of simulated nodes to calculate the frequency of words in a long text.
 
+Services
+========
+Services communicate two different transient applications. This allows to divide the running application in different independent tiers.   No documentation is available yet. Sorry.
 
 General distributed primitives
 =============================
