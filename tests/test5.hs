@@ -1,37 +1,45 @@
-module Main where
+import    Prelude hiding (div)
+import    Transient.Base
+import    GHCJS.HPlay.View
+import    Transient.Move
+import    Data.Dynamic
+import    Data.String
+import    Control.Monad.IO.Class
 
-import Transient.Base
-import Transient.Move
-import Transient.Internals
-import GHCJS.HPlay.View
-import Transient.Move.Utils
-import Control.Applicative
-import Control.Monad.IO.Class
-import Data.String
-import Control.Monad.State
+fs= fromString
 
--- to be executed with two or more nodes
-main = keep $ initNode $  test
+main= keep . initNode $ onBrowser $ do
+     loginput <- login
+     helloworld
+     v<-  atRemote $ validatep loginput         -- validation at the server,  using implicit websockets
+     displayResult  v
+     mouse
 
-alert1 x = liftIO $ do alert $ fromString $ show x ; return x
+login :: Cloud (String,String)
+login= local . render $  (,) <$> inputString Nothing <++ br
+                             <*> inputPassword <++  br
+                             <** submitButton "login" `fire` OnClick
 
-test= onBrowser $  local $ do
+helloworld :: Cloud ()
+helloworld=   local . render $ rawHtml $ h1 "hello world"
 
-        r <-  render $
-            (,)  <$> getString Nothing    `fire` OnChange
-                 <*> getString Nothing     `fire` OnChange
-                 <** (inputSubmit "click" `fire` OnClick)
+validatep :: (String,String) -> Cloud Bool
+validatep (u,p)=  if u== "foo" && p == "bar" then return True else return False
 
-        liftIO $ alert $ fromString $ show r
+displayResult :: Bool -> Cloud()
+displayResult v= local . render $ rawHtml $ toElem $ "Login result was: " ++ show v
 
-(<*|) a b=  do
-      (x,_) <- (,)  <$> a <*> b
-      return x
+mouse :: Cloud ()
+mouse= local $ do
+   render $  wraw (div  ! style (fs "height:100px;background-color:lightgreen;position:relative")
+                                   $ h1 "Mouse events here")
+                            `fire` OnMouseOut
+                            `fire` OnMouseOver
+                            `fire` OnMouseDown
+                            `fire` OnMouseMove
+                            `fire` OnMouseUp
+                            `fire` OnClick
+                            `fire` OnDblClick
 
---return1 l= do
---     IDNUM id <- getSData <|> error "error"
---     id1 <- gets mfSequence
---     liftIO $ alert $ fromString $ show (id,id1)
---     return l
-
-
+   EventData evname ev <- norender getEventData
+   render $ rawHtml $ p (evname, fromDynamic ev :: Maybe EvData)

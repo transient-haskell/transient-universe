@@ -37,23 +37,16 @@ import System.IO.Unsafe
 
 
 
-main= do
-  node1 <- createNode "localhost" 2000
-  node2 <- createNode "localhost" 2001
-  runCloudIO $ do
-    listen node1 <|> listen node2 <|> return ()
-    r <- local empty <|> runAt node2 (local (return "hello"))
-    localIO $ print r
+main=  keep $ initNode $  inputNodes <|>  do
+   local $ option "go" "go"
+   nodes <- onAll $ getNodes
+   let remote = nodes !! 1
+   wormhole remote $  do
+        x <-  local  $ choose[1..8 :: Int]
+        teleport
+        localIO $ print x
+        y <- local $ return $ x +2
+        teleport
+        localIO $ print y
 
-
-test :: Cloud ()
-test= onServer $ do
-   local $ option "t" "do test"
-
-   r <- wormhole (Node "localhost" 8080 (unsafePerformIO $ newMVar  []) []) $ do
-      teleport
-      p <- localIO $ print "ping" >> return "pong"
-      teleport
-      return p
-   localIO $ print r
-
+threadsc n f= onAll $ threads n $ runCloud f

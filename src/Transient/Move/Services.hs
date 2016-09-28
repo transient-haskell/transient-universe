@@ -18,7 +18,7 @@ import Transient.Base
 import Transient.Move
 import Transient.Logged(Loggable(..))
 import Transient.Backtrack
-import Transient.Internals(RemoteStatus(..), Log(..))
+import Transient.Internals  (RemoteStatus(..), Log(..))
 import Transient.Move.Utils
 
 import Transient.EVars
