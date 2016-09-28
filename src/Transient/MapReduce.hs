@@ -3,11 +3,11 @@
 
 
 module Transient.MapReduce
---  (
---Distributable(..),distribute, getText,
---getUrl, getFile,textUrl, textFile,
---mapKeyB, mapKeyU, reduce,eval,
---PartRef)
+(
+Distributable(..),distribute, getText,
+getUrl, getFile,textUrl, textFile,
+mapKeyB, mapKeyU, reduce,eval,
+PartRef)
  where
 
 #ifdef ghcjs_HOST_OS
