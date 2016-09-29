@@ -40,7 +40,17 @@ import Data.Typeable
 
 data Options= MapReduce | Chat | MonitorNodes | AllThree deriving (Typeable, Read, Show)
 
-main =  keep' $  initNode  $ inputNodes <|> do
+main =  keep' $  initNode  $ inputNodes <|> menuApp  <|> thelink
+
+thelink=   do
+     local . render $ rawHtml $ do
+         br;br
+         a ! href (fs "https://github.com/agocorona/transient-universe/blob/master/examples/distributedApps.hs") $ "source code"
+
+menuApp= do
+     local . render . rawHtml $ do
+        h1 "Transient Demo"
+        br; br
      op <- local .  render $
                 wlink MapReduce (b "map-reduce") <++ fs "   " <|>
                 wlink Chat (b "chat") <++ fs "   " <|>
@@ -91,9 +101,6 @@ mapReduce= onBrowser $ do
 fs= fromString
 
 -- a chat widget that run in the browser and in a cloud of servers
-
-
-
 
 
 chat = do
