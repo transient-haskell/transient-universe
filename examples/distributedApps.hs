@@ -42,11 +42,13 @@ data Options= MapReduce | Chat | MonitorNodes | AllThree deriving (Typeable, Rea
 
 main =  keep' $  initNode  $ inputNodes <|> menuApp  <|> thelink
 
+-- thelink :: Cloud ()
 thelink=   do
      local . render $ rawHtml $ do
          br;br
          a ! href (fs "https://github.com/agocorona/transient-universe/blob/master/examples/distributedApps.hs") $ "source code"
 
+-- menuApp :: Cloud ()
 menuApp= do
      local . render . rawHtml $ do
         h1 "Transient Demo"
@@ -63,7 +65,7 @@ menuApp= do
        Chat -> chat
        MonitorNodes -> monitorNodes
 
-
+-- allw :: Cloud ()
 allw=   mapReduce <|> chat  <|>  monitorNodes
 
 
@@ -72,6 +74,7 @@ allw=   mapReduce <|> chat  <|>  monitorNodes
 -- A Web node launch a map-reduce computation in all the server nodes, getting data from a
 -- textbox and render the results returned
 
+-- mapReduce :: Cloud ()
 mapReduce= onBrowser $ do
 
     content <- local . render $
@@ -102,7 +105,7 @@ fs= fromString
 
 -- a chat widget that run in the browser and in a cloud of servers
 
-
+-- chat :: Cloud ()
 chat = do
 
     let chatMessages= fs "chatMessages"
@@ -118,7 +121,7 @@ chat = do
 
   where
 
-
+  -- sendMessages :: Text -> Cloud ()
   sendMessages  chatMessages = do
 --      node <- atRemote $ local getMyNode
       let entry= boxCell (fs "msg") ! atr "size"  (fs "60")
@@ -139,6 +142,7 @@ chat = do
       size= atr (fs "size")
       showPrompt u (Node h p _ _)= u ++ "@" ++ h ++ ":" ++ show p ++ "> "
 
+  -- waitMessages :: Text -> Cloud ()
   waitMessages chatMessages =   do
 
       resp <- atRemote . local $ single $   getMailbox chatMessages
@@ -155,6 +159,7 @@ foreign import javascript unsafe
   scrollBottom  :: JS.JSString -> IO()
 #endif
 
+-- monitorNodes :: Cloud ()
 monitorNodes= do
     local . render $ rawHtml $ do
          h1 "Nodes connected"
