@@ -75,12 +75,17 @@ executable monitorService
 
 
 test-suite test-transient
-    build-depends:     base >4 && <5, mtl ,transient, random , text,
-                       containers , directory , filepath , stm ,
-                       HTTP , network , transformers , process ,network,
-                       network-info , bytestring , time , vector ,
-                       TCache , websockets , network-uri ,
-                       case-insensitive , hashable
+    build-depends: base > 4
+    if !impl(ghcjs >=0.1)
+      build-depends:
+               mtl ,transient, random , text,
+               containers , directory , filepath , stm ,
+               HTTP , network , transformers , process ,network,
+               network-info , bytestring , time , vector ,
+               TCache , websockets , network-uri ,
+               case-insensitive , hashable
+       
+            
     type: exitcode-stdio-1.0
     main-is: TestSuite.hs
     buildable: True
