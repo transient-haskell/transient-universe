@@ -1,6 +1,8 @@
 {-# LANGUAGE CPP #-}
 module Main where
 
+#ifndef ghcjs_HOST_OS
+
 import           Control.Monad
 import           Control.Monad.IO.Class
 import           Data.IORef
@@ -30,8 +32,9 @@ import Control.Monad.State
 #define shouldRun(x) (local $ getMyNode >>= \(Node _ p _ _) -> assert ( p == (x)) (return ()))
 
 
-#ifdef ghcjs_HOST_OS
+
 main= do
+
      let numNodes = 4
          ports = [2000 .. 2000 + numNodes - 1]
          createLocalNode = createNode "localhost"
