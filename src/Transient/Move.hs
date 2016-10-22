@@ -15,11 +15,14 @@
     ,GeneralizedNewtypeDeriving #-}
 module Transient.Move(
 
+-- * running the Cloud monad
 Cloud(..),runCloudIO, runCloudIO',local,onAll,lazy, loggedc, lliftIO,localIO,
 listen, Transient.Move.connect, connect', fullStop,
 
 -- * primitives for communication
 wormhole, teleport, copyData,
+
+
 
 -- * single node invocation
 beamTo, forkTo, streamFrom, callTo, runAt, atRemote,
@@ -34,8 +37,12 @@ newMailbox, putMailbox,getMailbox,cleanMailbox,
 single,
 
 #ifndef ghcjs_HOST_OS
+-- * buffering contril
 setBuffSize, getBuffSize,
 #endif
+
+-- * API
+api,
 
 -- * node management
 createNode, createWebNode, createNodeServ, getMyNode, getNodes,
@@ -50,7 +57,7 @@ addNodes, shuffleNodes,
 
 ) where
 
-import Transient.Internals    hiding ((!>))
+import Transient.Internals  --  hiding ((!>))
 import Transient.Logged
 import Transient.Indeterminism(choose)
 import Transient.Backtrack
@@ -305,21 +312,16 @@ single f= do
       liftIO $ modifyIORef rmap $ \mapth -> M.insert id chs mapth
 
 
-msend :: Loggable a => Connection -> StreamData a -> TransIO ()
 
+
+msend :: Loggable a => Connection -> StreamData a -> TransIO ()
 
 #ifndef ghcjs_HOST_OS
 
 msend (Connection _(Just (Node2Node _ sock _)) _ _ blocked _ _ _) r= do
-  r <- liftIO $ do
-       withMVar blocked $
-             const $ do
-                 SBS.send sock $ BC.pack (show r)
-                 return Nothing
-            `catch` (\(e::SomeException) -> return $ Just e)
-  case r of
-      Nothing -> return()
-      juste -> finish juste
+   liftIO $   withMVar blocked $  const $ SBS.sendAll sock $ BC.pack (show r)
+
+
 
 
 msend (Connection _(Just (Node2Web sconn)) _ _ blocked _  _ _) r=liftIO $
@@ -357,43 +359,6 @@ wsRead ws= do
     JM.ArrayBufferData arrBuffer -> error "arrBuffer"
 
 
-{-
-wsRead1 :: Loggable a => WebSocket  -> TransIO (StreamData a)
-wsRead1 ws= do
-  reactStream (makeCallback MessageEvent) (js_onmessage ws) CB.releaseCallback (return ())
-  where
-  reactStream createHandler setHandler removeHandler iob= Transient $ do
-        cont    <- getCont
-        hand <- liftIO . createHandler $ \dat ->do
-              runStateT (setData dat >> runCont cont) cont
-              iob
-        mEvData <- getSessionData
-        case mEvData of
-          Nothing -> liftIO $ do
-                        setHandler hand
-                        return Nothing
-
-          Just dat -> do
-             liftIO $ print "callback called 2*****"
-             delSessionData dat
-             dat' <- case getData dat of
-                 StringData str  -> liftIO $ putStrLn "WSREAD RECEIVED " >> print str >> return (read $ JS.unpack str)
-                 BlobData   blob -> error " blob"
-                 ArrayBufferData arrBuffer -> error "arrBuffer"
-             liftIO $ case dat' of
-               SDone -> do
-                        removeHandler $ Callback hand
-                        empty
-               sl@(SLast x) -> do
-                        removeHandler $ Callback hand     -- !!> "REMOVEHANDLER"
-                        return $ Just sl
-               SError e -> do
-                        removeHandler $ Callback hand
-                        print e
-                        empty
-               more -> return (Just  more)
--}
-
 
 wsOpen :: JS.JSString -> TransIO WebSocket
 wsOpen url= do
@@ -420,8 +385,6 @@ getWebServerNode = liftIO $ do
    h <- fromJSValUnchecked js_hostname
    p <- fromIntegral <$> (fromJSValUnchecked js_port :: IO Int)
    createNode h p
-
-
 
 
 hsonmessage ::WebSocket -> (MessageEvent ->IO()) -> IO ()
@@ -564,7 +527,8 @@ teleport =  do
 
          liftIO $ modifyMVar_ closures $ \map -> return $ M.insert closLocal (fulLog,cont) map
 
-         let tosend= reverse $ if closRemote==0 then fulLog else  log -- drop offset  $ reverse fulLog  !> ("fulLog", fulLog)
+         let tosend= reverse $ if closRemote==0 then fulLog else  log -- drop offset  $ reverse fulLog
+            --   !> ("fulLog", fulLog)
 
          runTrans $ msend conn $ SMore (closRemote,closLocal, tosend )
 --                                                  !> ("teleport sending", tosend )
@@ -623,16 +587,11 @@ mclose (Connection _ (Just (Web2Node sconn)) _ _ blocked _ _ _)=
 
 #endif
 
-liftIOF :: IO b -> TransIO b
-liftIOF mx=do
-    ex <- liftIO $ (mx >>= return . Right) `catch` (\(e :: SomeException) -> return $ Left e)
-    case ex of
-      Left e -> finish $ Just e
-      Right x -> return x
+
 
 mconnect :: Node -> TransIO  Connection
 mconnect  node@(Node _ _ _ _ )=  do
-  nodes <- getNodes                                 --  !> ("connecting node", node)
+  nodes <- getNodes                                  -- !> ("connecting node", node)
 
   let fnode =  filter (==node) nodes
   case fnode of
@@ -654,14 +613,14 @@ mconnect  node@(Node _ _ _ _ )=  do
 
 #ifndef ghcjs_HOST_OS
 
-        conn <- liftIOF $ do
+        conn <- liftIO $ do
           let size=8192
           sock <-  connectTo' size  host $ PortNumber $ fromIntegral port
-                      -- !> ("CONNECTING ",port)
+                     --  !> ("CONNECTING ",port)
 
           conn <- defConnection >>= \c -> return c{myNode=my,comEvent= ev,connData= Just $ Node2Node u  sock (error $ "addr: outgoing connection")}
 
-          SBS.send sock "CLOS a b\n\n"   -- !> "sending CLOS"
+          SBS.sendAll sock "CLOS a b\n\n"   -- !> "sending CLOS"
 
 
           return conn
@@ -704,6 +663,7 @@ connectTo' bufSize hostname (PortNumber port) =  do
             (\sock -> do
               NS.setSocketOption sock NS.RecvBuffer bufSize
               NS.setSocketOption sock NS.SendBuffer bufSize
+              NS.setSocketOption sock NS.SendTimeOut 1000000  !> "Connct TO"
               he <- BSD.getHostByName hostname
               NS.connect sock (NS.SockAddrInet port (BSD.hostAddress he))
               return sock)
@@ -857,7 +817,7 @@ listen  (node@(Node _   port _ _ )) = onAll $ do
 
    setData conn
    addNodes [node]
-   mlog <- listenNew (fromIntegral port) conn <|> listenResponses
+   mlog <- listenNew (fromIntegral port) conn  <|> listenResponses
 
 
    execLog  mlog
@@ -883,8 +843,8 @@ listenNew port conn= do
 
 
    initFinish
-   onFinish $ const $ do
---             return()                   !> "onFinish closures receivedd with LISTEN"
+   onFinish $ \me -> do
+             return()                   !> "onFinish closures receivedd with LISTEN" !> me
              let Connection{closures=closures}= conn  -- !> "listenNew closures empty"
              liftIO $ modifyMVar_ closures $ const $ return M.empty
 
@@ -901,17 +861,34 @@ listenNew port conn= do
            parallelReadHandler
 
      _ -> do
-           sconn <- httpMode (method, uri, headers) sock -- stay serving pages until a websocket request is received
+           let uri'= BC.tail $ uriPath uri               -- !> "HTTP REQUEST"
+           if  "api/" `BC.isPrefixOf` uri'
+             then do
+                   setData $ conn{connData=Just (Node2Node (PortNumber port)
+                                 sock addr),closChildren=chs}
 
-           setData conn{connData= Just (Node2Web sconn ),closChildren=chs}
+                   let log =Exec: (map (Var . IDyns ) $ split $ BC.unpack $ BC.drop 4 uri')
 
+                   return $ SMore $(0,0, log )  !> log
 
-           killOnFinish $ parallel $ do
-               msg <- WS.receiveData sconn             -- WebSockets
-               return . read $ BC.unpack msg
---                !> ("Server WebSocket msg read",msg)  !> "<-------<---------<--------------"
+             else do
+                   sconn <- httpMode (method, uri', headers) sock  -- stay serving pages until a websocket request is received
 
+                   setData conn{connData= Just (Node2Web sconn ),closChildren=chs}
 
+                   killOnFinish $ parallel $ do
+                       msg <- WS.receiveData sconn             -- WebSockets
+                       return . read $ BC.unpack msg
+--                        !> ("Server WebSocket msg read",msg)
+--                        !> "<-------<---------<--------------"
+
+     where
+      uriPath = BC.dropWhile (/= '/')
+      split []= []
+      split ('/':r)= split r
+      split s=
+          let (h,t) = span (/= '/') s
+          in h: split  t
 
 
 
@@ -925,7 +902,7 @@ listenNew port conn= do
 --deriving instance Typeable PortID
 #endif
 
-
+listenResponses :: Loggable a => TransIO (StreamData a)
 listenResponses= do
 
       (conn, node) <- getMailbox "connections"
@@ -955,7 +932,7 @@ type IdClosure= Int
 data Closure= Closure IdClosure
 
 execLog  mlog = Transient $ do
-       case  mlog    of                       -- !> ("RECEIVED ", mlog ) of
+       case  mlog            of              --  !> ("RECEIVED ", mlog ) of
              SError e -> do
                  runTrans $ finish $ Just e
                  return Nothing
@@ -969,6 +946,7 @@ execLog  mlog = Transient $ do
               conn@Connection {closures=closures,closChildren=mapThreads} <- getData `onNothing` error "Listen: myNode not set"
 
               if closl== 0 then do
+                   return() !> " execlog"
                    setData $ Log True log  $ reverse log
                    setData $ Closure closr
 --
@@ -1270,18 +1248,18 @@ readFrom sock =  loop where
 
 toStrict= B.concat . BS.toChunks
 
-httpMode (method,uri, headers) conn  = do
+httpMode (method,uri, headers) sock  = do
 --   return ()                        !> ("HTTP request",method,uri, headers)
    if isWebSocketsReq headers
      then  liftIO $ do
 
          stream <- makeStream                  -- !!> "WEBSOCKETS request"
             (do
-                bs <-  SBS.recv conn 4096 -- readFrom conn
+                bs <-  SBS.recv sock 4096 -- readFrom sock
                 return $ if BC.null bs then Nothing else Just  bs)
             (\mbBl -> case mbBl of
                 Nothing -> return ()
-                Just bl ->  SBS.sendMany conn (BL.toChunks bl) >> return())   -- !!> show ("SOCK RESP",bl)
+                Just bl ->  SBS.sendMany sock (BL.toChunks bl) >> return())   -- !!> show ("SOCK RESP",bl)
 
          let
              pc = WS.PendingConnection
@@ -1300,26 +1278,33 @@ httpMode (method,uri, headers) conn  = do
 
 
      else do
-          let uri'= BC.tail $ uriPath uri               -- !> "HTTP REQUEST"
-              file= if BC.null uri' then "index.html" else uri'
 
-          content <- liftIO $  BL.readFile ( "./static/out.jsexe/"++ BC.unpack file)
-                            `catch` (\(e:: SomeException) ->
-                                return  "Not found file: index.html<br/> please compile with ghcjs<br/> ghcjs program.hs -o static/out")
+              let file= if BC.null uri then "index.html" else uri
 
-          n <- liftIO $ SBS.sendMany conn   $  ["HTTP/1.0 200 OK\nContent-Type: text/html\nConnection: close\nContent-Length: " <> BC.pack (show $ BL.length content) <>"\n\n"] ++
-                                  (BL.toChunks content )
+              content <- liftIO $  BL.readFile ( "./static/out.jsexe/"++ BC.unpack file)
+                                `catch` (\(e:: SomeException) ->
+                                    return  "Not found file: index.html<br/> please compile with ghcjs<br/> ghcjs program.hs -o static/out")
+
+              liftIO $ SBS.sendMany sock   $  ["HTTP/1.0 200 OK\nContent-Type: text/html\nConnection: close\nContent-Length: " <> BC.pack (show $ BL.length content) <>"\n\n"] ++
+                                      (BL.toChunks content )
 
 
-          empty
-
-      where
-      uriPath = BC.dropWhile (/= '/')
+              empty
 
 
 
-isWebSocketsReq = not  . null
-    . filter ( (== mk "Sec-WebSocket-Key") . fst)
+api :: TransIO BS.ByteString -> Cloud ()
+api  w= Cloud $ do
+   conn <- getSData  <|> error "teleport: No connection defined: use wormhole"
+   r <-  w
+   send conn r
+   empty
+
+   where
+   send (Connection _(Just (Node2Node _ sock _)) _ _ blocked _ _ _) r=
+      liftIO $   withMVar blocked $ const $  SBS.sendMany sock
+                                      (BL.toChunks r ) !> ("sendApi",r)
+
 
 
 
@@ -1331,9 +1316,14 @@ data ParseContext a = IsString a => ParseContext (IO  a) a deriving Typeable
 --    return r               -- !> ( "giveData ", r)
 
 
+isWebSocketsReq = not  . null
+    . filter ( (== mk "Sec-WebSocket-Key") . fst)
+
+
+
 receiveHTTPHead s = do
   input <-  liftIO $ SBSL.getContents s
-  setData $ (ParseContext (error "request truncated. Maybe the browser program does not match the server one. \nRecompile the program again with ghcjs <prog>  -o static/out") input
+  setData $ (ParseContext (error "request truncated. Maybe the browser program does not match the server one. \nRecompile the program again with ghcjs <program.hs>  -o static/out") input
              ::ParseContext BS.ByteString)
   (method, uri, vers) <- (,,) <$> getMethod <*> getUri <*> getVers
   headers <- many $ (,) <$> (mk <$> getParam) <*> getParamValue    -- !>  (method, uri, vers)
@@ -1424,7 +1414,8 @@ parse split= do
 
 #ifdef ghcjs_HOST_OS
 isBrowserInstance= True
-
+api _= empty
 #else
 isBrowserInstance= False
+
 #endif

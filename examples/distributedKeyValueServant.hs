@@ -11,6 +11,7 @@ module Main where
 import           Control.Applicative
 import           Control.Concurrent         (forkIO, threadDelay)
 import           Control.Concurrent.MVar
+--import           Control.DeepSeq
 import           Control.Monad
 import           Control.Monad.IO.Class
 import           Control.Monad.State
@@ -38,13 +39,15 @@ import           Transient.Base
 import           Transient.Internals
 import           Transient.Move
 import           Transient.Move.Utils
-
+import           Data.Dynamic
+import           Control.Concurrent.STM.TChan
+import           Control.Concurrent.STM
 
 newtype VendorId = VendorId UUID
-  deriving(Eq, Ord, FromHttpApiData)
+  deriving(Eq, Ord, Read, Show,FromHttpApiData)
 
 newtype ItemId = ItemId UUID
-  deriving(Eq, Ord, FromHttpApiData)
+  deriving(Eq, Ord,Read,Show, FromHttpApiData)
 
 type ItemApi =
   "item" :> Get '[JSON] [Item] :<|>
@@ -55,10 +58,10 @@ itemApi = Proxy
 
 -- * app
 
-instance FromHttpApiData UUID where
-  parseUrlPiece t = case fromText t of
-    Just u -> Right u
-    Nothing -> Left "Invalid UUID"
+--instance FromHttpApiData UUID where
+--  parseUrlPiece t = case fromText t of
+--    Just u -> Right u
+--    Nothing -> Left "Invalid UUID"
 
 run :: IO ()
 run = do
@@ -82,29 +85,19 @@ getItems :: Handler [Item]
 getItems = return [exampleItem]
 
 getItemById :: ItemId -> VendorId -> Handler Item
-getItemById i@(ItemId iid) v@(VendorId vid) = do
-  let h = hash $ toString iid ++ toString vid
-  liftIO $ runCloudIO' $ do
-    exit <- onAll $ getSData <|> error "no exit data"  ::Cloud (Exit (MVar (Either String (Maybe  Item))))
-    local $ liftIO (readIORef ref) >>= \dat -> modify (\s -> s{mfData= dat})
-    setData exit
-    nodes <- onAll getNodes
-    let num = h `rem` length nodes
-    let node = sort nodes !! num
-    m <- hashmap
-    quant <- runAt node $ return $ M.lookup (v, i) m
-    lliftIO $ print "after runAt"
-    lliftIO $ print quant
-    case quant of
-      Just q -> local $ exit (Item q "Item 1")
-      Nothing -> local $ exit (Item 0 "Item Unknown")
-    -- return $ Item h "Item Unknown"
+getItemById i v = query i v
+
+query i v= liftIO $  do
+    tv <-  newMVar $ toDyn (i, v)
+    atomically $ writeTChan rquery  tv
+    takeMVar tv >>= return . fromJust . fromDynamic
+
+
 
 
 exampleItem :: Item
 exampleItem = Item 0 "example item"
 
--- * item
 
 data Item
   = Item {
@@ -117,28 +110,47 @@ instance ToJSON Item
 instance FromJSON Item
 
 
---connectionHandle = connect "localhost" 28015 Nothing
 hashmap :: Cloud (Map (VendorId, ItemId) Int)
-hashmap = onAll (return $ M.fromList [((VendorId . fromJust $ fromText "bacd5f20-8b46-4790-b93f-73c47b8def72", ItemId . fromJust $ fromText "db6af727-1007-4cae-bd24-f653b1c6e94e"), 10),
-                                      ((VendorId . fromJust $ fromText "8f833732-a199-4a74-aa55-a6cd7b19ab66", ItemId . fromJust $ fromText "d6693304-3849-4e69-ae31-1421ea320de4"), 10)])
+hashmap = onAll (return $ M.fromList [((VendorId . fromJust $ fromText "bacd5f20-8b46-4790-b93f-73c47b8def72", ItemId . fromJust $ fromText "db6af727-1007-4cae-bd24-f653b1c6e94e"), 10)])
+                                   --     ((VendorId . fromJust $ fromText "8f833732-a199-4a74-aa55-a6cd7b19ab66", ItemId . fromJust $ fromText "d6693304-3849-4e69-ae31-1421ea320de4"), 20)])
 
 
-{-# NOINLINE ref #-}
-ref = unsafePerformIO $ newIORef (error "state should have been written here!")
+
+rquery :: TChan (MVar Dynamic)
+rquery= unsafePerformIO $ newTChanIO
+
+
 
 
 main :: IO ()
-main = runCloudIO' $ do
-    seed <- lliftIO $ createNode "localhost" 8000
-    node <- lliftIO $ createNode "localhost" 8000
+main = keep' $   async run <|> initNode (inputNodes <|> cluster)
+
+cluster= do
+
+--    lliftIO $ print $ length nodes
+
+    tv <- onAll . waitEvents . atomically $ readTChan rquery
+    (i@(ItemId iid), v@(VendorId vid)) <- localIO $ do
+                                            d <- takeMVar tv
+                                            return $ fromJust $ fromDynamic d
+
+    let h = abs $ hash $ toString iid ++ toString vid
+
+    onAll $ liftIO $  print $ "hash" ++ show h
+
+    node <- local $ do
+       nodes <-  getNodes
+       return () !> ("numnodes", length nodes)
+
+       let num = h `rem` length nodes
+       let node= sort nodes !! num
+       return node !> ("calling node",node)
+
     m <- hashmap
-    connect node seed
-    local $ gets mfData >>= liftIO . writeIORef ref
-    nodes <- onAll getNodes
-    lliftIO $ print $ length nodes
-    -- let num = fromJust $ elemIndex node (sort nodes)
-    -- quant <- runAt (nodes !! num) $ return $ M.lookup num m
-    -- lliftIO $ print quant
-    (do i <- local $ getMailbox "mailbox" ; lliftIO $ print (i::Int))
-        <|> (do clustered $ local $ putMailbox "mailbox" (123::Int)  ; Control.Applicative.empty)
-        <|> lliftIO run
+    quant <- runAt node $ local $ do
+        return () !> ("accessing", (v,i), "map=",m)
+        return $ M.lookup (v, i) m
+
+    localIO $ putMVar tv $ toDyn $ case quant of
+      Just q  -> (Item q "Item 1")
+      Nothing -> (Item 0 "Item Unknown")

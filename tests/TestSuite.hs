@@ -30,8 +30,9 @@ import Control.Monad.State
 #define shouldRun(x) (local $ getMyNode >>= \(Node _ p _ _) -> assert ( p == (x)) (return ()))
 
 
-
+#ifdef ghcjs_HOST_OS
 main= do
+
      let numNodes = 4
          ports = [2000 .. 2000 + numNodes - 1]
          createLocalNode = createNode "localhost"
@@ -99,6 +100,9 @@ runNodes nodes= foldl (<|>) empty (map listen nodes) <|> return () -- (onAll $ a
 --   lliftIO $ atomicModifyIORef effects $ \ xs -> ((node,x): xs,())
 --   return()
 
+#else
 
+main= return ()
+#endif
 
 

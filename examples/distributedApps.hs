@@ -34,13 +34,32 @@ import qualified Data.JSString as JS hiding (span,empty,strip,words)
 
 import Data.Typeable
 
-
+import qualified Data.ByteString.Lazy.Char8 as BS
+import Transient.Logged
 
 
 
 data Options= MapReduce | Chat | MonitorNodes | AllThree deriving (Typeable, Read, Show)
 
-main =  keep' $  initNode  $ inputNodes <|> menuApp  <|> thelink
+main =  keep .initNode   $ edit  (menuApp <|> thelink)
+
+--  (localIO  manageNavigation >> empty)<|>
+
+apisample= api  $ do
+    paramName "hello"
+    name <- paramVal
+    threads 0 $ async (return $BS.pack
+            "HTTP/1.0 200 OK\nContent-Type: text/plain\nConnection: close\n\n")
+        <|> do i <- choose[1 .. 10]
+               return . BS.pack $ " hello " ++ name ++ show i
+
+
+
+test= do
+    local . render $ wlink ()  (fs "test")
+    atRemote $ do
+      node <- local $ getNodes >>= return . Prelude.head . tail
+      runAt node $ localIO $ print "hello"
 
 thelink=   do
      local . render $ rawHtml $ do
@@ -58,10 +77,10 @@ menuApp= do
                 wlink AllThree  (b "all widgets")
 
      case op of
-       AllThree -> allw
-       MapReduce -> mapReduce
-       Chat -> chat
-       MonitorNodes -> monitorNodes
+               AllThree -> allw
+               MapReduce -> mapReduce
+               Chat -> chat
+               MonitorNodes -> monitorNodes
 
 
 allw=   mapReduce <|> chat  <|>  monitorNodes
@@ -103,7 +122,7 @@ fs= fromString
 -- a chat widget that run in the browser and in a cloud of servers
 
 
-chat = do
+chat = onBrowser $ do
 
     let chatMessages= fs "chatMessages"
 
@@ -155,7 +174,7 @@ foreign import javascript unsafe
   scrollBottom  :: JS.JSString -> IO()
 #endif
 
-monitorNodes= do
+monitorNodes= onBrowser $ do
     local . render $ rawHtml $ do
          h1 "Nodes connected"
          div ! atr (fs "id") (fs "nodes") $ noHtml
