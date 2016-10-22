@@ -7,7 +7,7 @@
 
 See the [Wiki](https://github.com/agocorona/transient/wiki)
 
-transient-universe is the distributed computing extension of [transient](https://github.com/agocorona/transient).  It support moving computations (Haskell closures) from a computer in the network to another even among different architectures:  Linux nodes can work with windows and browser nodes running haskell compiled with [ghcjs](https://github.com/ghcjs/ghcjs).
+transient-universe is the distributed computing extension of [transient](https://github.com/agocorona/transient).  It support moving computations between Haskell closures in different computers in the network. Even among different architectures:  Linux nodes can work with windows and browser nodes running haskell compiled with [ghcjs](https://github.com/ghcjs/ghcjs).
 
 The primitives that perform the moving of computations are called `wormhole` and `teleport`, the names expresses the semantic. Hence the name of the package.
 
