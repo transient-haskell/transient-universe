@@ -1,5 +1,6 @@
 [![Stackage LTS](http://stackage.org/package/transient-universe/badge/lts)](http://stackage.org/lts/package/transient-universe)
 [![Stackage Nightly](http://stackage.org/package/transient-universe/badge/nightly)](http://stackage.org/nightly/package/transient-universe)
+[![Build Status](https://travis-ci.org/agocorona/transient-universe.png?branch=master)](https://travis-ci.org/agocorona/transient-universe)
 
 ![](https://raw.githubusercontent.com/agocorona/transient-universe/master/logo.ico)
 
