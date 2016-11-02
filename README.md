@@ -9,14 +9,14 @@ See the [Wiki](https://github.com/agocorona/transient/wiki)
 
 transient-universe is the distributed computing extension of [transient](https://github.com/agocorona/transient).  It support moving computations between Haskell closures in different computers in the network. Even among different architectures:  Linux nodes can work with windows and browser nodes running haskell compiled with [ghcjs](https://github.com/ghcjs/ghcjs).
 
-The primitives that perform the moving of computations are called `wormhole` and `teleport`, the names expresses the semantic. Hence the name of the package.
+The primitives that perform the moving of computations are called `wormhole` and `teleport`, the names express the semantics. Hence the name of the package.
 
-All the nodes run the same program compiled for different architectures. It defines a Cloud way of computing (monad). It is a thin layer on top of transient with additional primitives and services that run a single program  in one or many nodes.
+All the nodes run the same program compiled for different architectures. It defines a Cloud way of computing (monad). It is a thin layer on top of transient with additional primitives and services that run a single program in one or many nodes.
 
 Browser integration
 ==================
 
-Browser nodes, running transient programs compiled with ghcjs are integrated with server nodes, using websockets communications. Just compile the program with ghcjs and point the browser to http://server:port. The server nodes have a HTTP server that will send the compiled program to the browser.
+Browser nodes, running transient programs compiled with ghcjs are integrated with server nodes, using websockets for communication. Just compile the program with ghcjs and point the browser to http://server:port. The server nodes have a HTTP server that will send the compiled program to the browser.
 
 Distributed Browser/server Widgets
 -------
@@ -28,7 +28,7 @@ These features can make transient ideal for client as well as server side-driven
 
 Map-reduce
 ==========
-transient-universe implements map-reduce in the style of [spark](http://spark.apache.org) as a particular case. It is at the same time a hard test of the distributed primitives since it involves a complex choreography of movement of computations. It supports in memory operations and caching. resilience (restart from the last checkpoint in case of failure) is not implemented but it is foreseen.
+transient-universe implements map-reduce in the style of [spark](http://spark.apache.org) as a particular case. It is at the same time a hard test of the distributed primitives since it involves a complex choreography of movement of computations. It supports in memory operations and caching. Resilience (restart from the last checkpoint in case of failure) is not implemented but it is foreseen.
 
 Look at [this article](https://www.schoolofhaskell.com/user/agocorona/estimation-of-using-distributed-computing-streaming-transient-effects-vi-1#distributed-datasets)
 
@@ -48,7 +48,7 @@ General distributed primitives
 
 The connection is initiated by `wormhole`  with another node. This can be done anywhere in a computation without breaking composability. As always, Everything is composable.
 
-both primitives support also streaming among nodes in an efficient way. It means that a remote call  can return not a single response but many of them.
+Both primitives support also streaming among nodes in an efficient way. It means that a remote call can return not just a single response, but many of them.
 
 All the other distributed primitives: `runAt`, `streamFrom` `clustered` etc are rewritten in terms of these two.
 
@@ -103,7 +103,7 @@ The [Wiki](https://github.com/agocorona/transient/wiki) is more user oriented
 
 My video sessions in [livecoding.tv](https://www.livecoding.tv/agocorona/videos/) not intended as tutorials or presentations, but show some of the latest features running.
 
-The articles are more tecnical:
+The articles are more technical:
 
 - [Philosophy, async, parallelism, thread control, events, Session state](https://www.fpcomplete.com/user/agocorona/EDSL-for-hard-working-IT-programmers?show=tutorials)
 - [Backtracking and undoing IO transactions](https://www.fpcomplete.com/user/agocorona/the-hardworking-programmer-ii-practical-backtracking-to-undo-actions?show=tutorials)
@@ -112,7 +112,7 @@ The articles are more tecnical:
 - [Publish-Subscribe variables](https://www.schoolofhaskell.com/user/agocorona/publish-subscribe-variables-transient-effects-v)
 - [Distributed streaming, map-reduce](https://www.schoolofhaskell.com/user/agocorona/estimation-of-using-distributed-computing-streaming-transient-effects-vi-1)
 
-These articles contain executable examples (not now, since the site no longer support the execution of haskell snippets).
+These articles contain executable examples (not now, since the site no longer support the execution of Haskell snippets).
 
 
 
