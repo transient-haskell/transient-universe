@@ -8,15 +8,16 @@ machine:
 
 dependencies:
   cache_directories:
-    - "$HOME/.ghc"
-    - "$HOME/.cabal"
-    - "$HOME/.stack"
-    - "$HOME/.ghcjs"
-    - "$HOME/.local/bin"
+    - ~/.ghc
+    - ~/.cabal
+    - ~/.stack
+    - ~/.ghcjs
+    - ~/.local/bin
   pre:
+    - echo $PATH
     - cabal update
     - cabal install hsc2hs
-    - mkdir $HOME/.local/bin
+    - mkdir ~/.local/bin
     - curl -L https://www.stackage.org/stack/linux-x86_64 \
         | tar xz --wildcards --strip-components=1 -C ~/.local/bin '*/stack'
     - nvm install $NODE
