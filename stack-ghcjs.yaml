@@ -1,17 +1,19 @@
-resolver: lts-6.6
+resolver: lts-7.7
 packages:
 - '.'
 - location:
     git: https://github.com/agocorona/transient.git
-    commit: b06645a46462e68a2712de8ecd0d8f325b07a520
+    commit: 1864f1f4e3a3ba472f471b3e4743d19d7362bebc
   extra-dep: true
 extra-package-dbs: []
 flags: {}
 
-compiler: ghcjs-0.2.0.20160917_ghc-7.10.3
+compiler: ghcjs-0.2.1.9007007_ghc-8.0.1
 compiler-check: match-exact
 setup-info:
   ghcjs:
     source:
-      ghcjs-0.2.0.20160917_ghc-7.10.3:
-         url: http://ghcjs.luite.com/master-20160917.tar.gz
+      ghcjs-0.2.1.9007007_ghc-8.0.1:
+         url: http://ghcjs.tolysz.org/ghc-8.0-2016-11-03-lts-7.7-9007007.tar.gz
+         sha1: ce169f85f1c49ad613ae77fc494d5565452ff59a
+allow-newer: true
