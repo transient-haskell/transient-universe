@@ -1,0 +1,2 @@
+stack --resolver lts-7.14 --allow-different-user --install-ghc --compiler  ghcjs-0.1.0.20150924_ghc-7.10.2 ghc $1 --package ghcjs-hplay --package ghcjs-perch --package transient --package transient-universe -- -o static/out
+stack --resolver lts-7.14 --allow-different-user --install-ghc runghc $1 --package ghcjs-hplay --package ghcjs-perch --package transient --package transient-universe -- -p start/localhost/8080
