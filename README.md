@@ -5,6 +5,8 @@
 
 ![](https://raw.githubusercontent.com/agocorona/transient-universe/master/logo.png)
 
+[![Gitter](https://badges.gitter.im/theam/haskell-do.svg)](https://gitter.im/Transient-Transient-Universe-HPlay/Lobby?utm_source=share-link&utm_medium=link&utm_campaign=share-link)
+
 See the [Wiki](https://github.com/agocorona/transient/wiki)
 
 transient-universe is the distributed computing extension of [transient](https://github.com/agocorona/transient).  It support moving computations between Haskell closures in different computers in the network. Even among different architectures:  Linux nodes can work with windows and browser nodes running haskell compiled with [ghcjs](https://github.com/ghcjs/ghcjs).
