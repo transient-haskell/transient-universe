@@ -31,7 +31,7 @@ beamTo, forkTo, streamFrom, callTo, runAt, atRemote,
 clustered, mclustered, callNodes,
 
 -- * messaging
-putMailbox,getMailbox,cleanMailbox,
+putMailbox, putMailbox',getMailbox,getMailbox',cleanMailbox,cleanMailbox',
 
 -- * thread control
 single, unique,
@@ -107,9 +107,9 @@ import Data.JSString  (JSString(..), pack)
 
 import Control.Monad.State
 import System.IO
-import Control.Exception
+import Control.Exception hiding (onException)
 import Data.Maybe
-import Unsafe.Coerce
+--import Data.Hashable
 
 --import System.Directory
 import Control.Monad
@@ -138,6 +138,8 @@ import Data.String
 
 import System.Mem.StableName
 import Unsafe.Coerce
+
+--import System.Random
 
 #ifdef ghcjs_HOST_OS
 type HostName  = String
@@ -207,7 +209,7 @@ runCloudIO (Cloud mx)= keep mx
 
 -- | run the cloud computation with no console input
 runCloudIO' :: Typeable a =>  Cloud a -> IO (Maybe a)
-runCloudIO' (Cloud mx)= keep' mx
+runCloudIO' (Cloud mx)=  keep' mx
 
 -- #endif
 
@@ -476,7 +478,7 @@ wormhole node (Cloud comp) = local $ Transient $ do
 
    moldconn <- getData :: StateIO (Maybe Connection)
    mclosure <- getData :: StateIO (Maybe Closure)
-   labelState "wormhole"
+   labelState $ "wormhole" ++ show node
    logdata@(Log rec log fulLog) <- getData `onNothing` return (Log False [][])
 
    mynode <- runTrans getMyNode     -- debug
@@ -557,13 +559,15 @@ teleport =  do
 
          --read this Closure
          Closure closRemote  <- getData `onNothing` return (Closure 0 )
---         return () !>  ("CLOSURE", closRemote)
+
          --set his own closure in his Node data
 
          let closLocal = sum $ map (\x-> case x of Wait -> 100000;
                                                    Exec -> 1000
                                                    _ -> 1) fulLog
+
 --         closLocal  <-   liftIO $ randomRIO (0,1000000)
+         node <- runTrans getMyNode
 
          liftIO $ modifyMVar_ closures $ \map -> return $ M.insert closLocal (fulLog,cont) map
 
@@ -735,13 +739,13 @@ data ConnectionData=
                    Web2Node{webSocket :: WebSocket}
 #endif
 
-
+data MailboxId= MailboxId Int TypeRep deriving (Eq,Ord)
 
 data Connection= Connection{myNode     :: Node
                            ,connData   :: Maybe(ConnectionData)
                            ,bufferSize :: BuffSize
                            -- Used by getMailBox, putMailBox
-                           ,comEvent   :: IORef (M.Map TypeRep (EVar SData))
+                           ,comEvent   :: IORef (M.Map MailboxId (EVar SData))
                            -- multiple wormhole/teleport use the same connection concurrently
                            ,blocked    :: Blocked
                            ,calling    :: Bool
@@ -764,24 +768,28 @@ data Connection= Connection{myNode     :: Node
 -- same `listen`  or `connect`
 -- while EVars are only visible by the process that initialized  it and his children.
 -- Internally, the mailbox is in a well known EVar stored by `listen` in the `Connection` state.
+putMailbox :: Typeable a => a -> TransIO ()
+putMailbox = putMailbox' 0
 
-putMailbox :: Typeable a =>  a -> TransIO ()
-putMailbox  dat= do --  sendNodeEvent (name, Just dat)
-   let name= typeOf dat
+-- | write to a mailbox identified by an Integer besides the type
+putMailbox' :: Typeable a =>  Int -> a -> TransIO ()
+putMailbox'  idbox dat= do
+   let name= MailboxId idbox $ typeOf dat
    Connection{comEvent= mv} <- getData `onNothing` errorMailBox
    mbs <- liftIO $ readIORef mv
    let mev =  M.lookup name mbs
    case mev of
-     Nothing ->newMailbox name >> putMailbox dat
+     Nothing ->newMailbox name >> putMailbox' idbox dat
      Just ev -> writeEVar ev $ unsafeCoerce dat
 
 
-newMailbox :: TypeRep -> TransIO ()
+newMailbox :: MailboxId -> TransIO ()
 newMailbox name= do
 --   return ()  -- !> "newMailBox"
    Connection{comEvent= mv} <- getData `onNothing` errorMailBox
    ev <- newEVar
    liftIO $ atomicModifyIORef mv $ \mailboxes ->   (M.insert name ev mailboxes,())
+
 
 errorMailBox= error "MailBox: No connection open. Use wormhole"
 
@@ -789,28 +797,35 @@ errorMailBox= error "MailBox: No connection open. Use wormhole"
 -- The order of reading is defined by `readTChan`
 -- This is reactive. it means that each new message trigger the execution of the continuation
 -- each message wake up all the `getMailbox` computations waiting for it.
-
 getMailbox :: Typeable a => TransIO a
-getMailbox = x where
+getMailbox = getMailbox' 0
+
+-- | read from a mailbox identified by a number besides the type
+getMailbox' :: Typeable a => Int -> TransIO a
+getMailbox' mboxid = x where
  x = do
 
-   let name= typeOf $ typeOf1 x
+   let name= MailboxId mboxid $ typeOf $ typeOf1 x
    Connection{comEvent= mv} <- getData `onNothing` errorMailBox
    mbs <- liftIO $ readIORef mv
    let mev =  M.lookup name mbs
    case mev of
-     Nothing ->newMailbox name >> getMailbox
+     Nothing ->newMailbox name >> getMailbox' mboxid
      Just ev ->unsafeCoerce $ readEVar ev
 
  typeOf1 :: TransIO a -> a
  typeOf1 = undefined
 
--- | delete all subscriptions for that mailbox expecting this kind of data.
-cleanMailbox :: Typeable a =>   a -> TransIO ()
-cleanMailbox  witness= do
-   let name= typeOf witness
+-- | delete all subscriptions for that mailbox expecting this kind of data
+cleanMailbox :: Typeable a => a -> TransIO ()
+cleanMailbox = cleanMailbox' 0
+
+-- | clean a mailbox identified by an Int and the type
+cleanMailbox' :: Typeable a => Int ->  a -> TransIO ()
+cleanMailbox'  mboxid witness= do
+   let name= MailboxId mboxid $ typeOf witness
    Connection{comEvent= mv} <- getData `onNothing` error "getMailBox: accessing network events out of listen"
-   mbs <- liftIO $readIORef mv
+   mbs <- liftIO $ readIORef mv
    let mev =  M.lookup name mbs
    case mev of
      Nothing -> return()
@@ -866,7 +881,7 @@ listen  (node@(Node _   port _ _ )) = onAll $ do
 
 -- listen incoming requests
 listenNew port conn'= do
-
+   labelState "listen"
    sock <- liftIO . listenOn  $ PortNumber port
 
    let bufSize= bufferSize conn'
@@ -886,16 +901,17 @@ listenNew port conn'= do
 
    onFinish $ \me -> do
 --             return()           !> "onFinish closures receivedd with LISTEN" !> me
-             let Connection{closures=closures,closChildren= rmap}= conn  -- !> "listenNew closures empty"
+             let Connection{closures=closures,closChildren= rmap}= conn
+                     -- !> "listenNew closures empty"
              liftIO $ do
-                modifyMVar_ closures $ const $ return M.empty
-
-                writeIORef rmap M.empty
-             st <- get
-
+                  modifyMVar_ closures $ const $ return M.empty
+                  writeIORef rmap M.empty
+             killChilds
+--             st <- get >>= return . fromJust . parent
+--
 --             liftIO $ NS.close sock
-
-             liftIO $ killChildren $ children $ st -- fromJust $ parent st
+--             liftIO $ writeIORef (labelth st) (Alive,"")
+--             liftIO $ killChildren $ children st -- fromJust $ parent st
 
 
    (method,uri, headers) <- receiveHTTPHead sock
@@ -922,8 +938,8 @@ listenNew port conn'= do
                    sconn <- httpMode (method, uri', headers) sock  -- stay serving pages until a websocket request is received
 
                    setData conn{connData= Just (Node2Web sconn) ,closChildren=chs}
-                   async (return (SMore (0,0,[Exec]))) <|> do
-
+--                   async (return (SMore (0,0,[Exec]))) <|> do
+                   do
 
                      r <-  parallel $ do
                              msg <- WS.receiveData sconn
@@ -969,12 +985,13 @@ listenResponses :: Loggable a => TransIO (StreamData a)
 listenResponses= do
 
       (conn, node) <- getMailbox
+      labelState $ "listen from: "++ show node
       setData conn
 #ifndef ghcjs_HOST_OS
       case conn of
              Connection _(Just (Node2Node _ sock _)) _ _ _ _ _ _ -> do
                  input <- liftIO $ SBSL.getContents sock
-                 setData $ (ParseContext (error "SHOULD NOT READ 2") input :: ParseContext BS.ByteString)
+                 setData $ (ParseContext (error "listenResponses: Parse error") input :: ParseContext BS.ByteString)
 
 #endif
       initFinish
@@ -1013,17 +1030,6 @@ execLog  mlog = Transient $ do
 
                    setData $ Log True log  $ reverse log
                    setData $ Closure closr
---
---                   chs <- liftIO $ atomicModifyIORef mapThreads
---                                 $ \mapth ->
---                                    let mx = M.lookup closr mapth
---                                    in case mx of
---                                      Just tv -> (mapth,tv) !> "FOUND"
---                                      Nothing ->
---                                          let tv = unsafePerformIO $ newTVarIO []
---                                          in (M.insert closr tv mapth, tv)
---
---                   modify $ \ s -> s{children= chs}  -- to allow his own thread control
 
                    return $ Just ()                  --  !> "executing top level closure"
 
@@ -1037,7 +1043,8 @@ execLog  mlog = Transient $ do
                    Nothing -> do
                                  runTrans $ msend conn $ SLast (closr,closl, [] :: [()] )
                                     -- to delete the remote closure
-                                 error ("request received for non existent closure: " ++  show closl)
+                                 error ("request received for non existent closure: "
+                                   ++  show closl)
                    -- execute the closure
                    Just (fulLog,cont) -> liftIO $ runStateT (do
                                      let nlog= reverse log ++  fulLog
@@ -1256,7 +1263,6 @@ connect'  remotenode= do
                    nodes <- getNodes
                    setNodes $ nodes \\ [nodeConnecting]
 
---              renameMyNode remotenode
               return nodes
 
            mclustered . local . addNodes $ nodes
@@ -1269,23 +1275,14 @@ connect'  remotenode= do
                return allNodes
 
     let n = newNodes \\ nodes
-    when (not $ null n) $ mclustered $ local $ do
-        liftIO $ putStrLn  "New  nodes: " >> print n
-        addNodes n   -- add the new discovered nodes
+    when (not $ null n) $ mclustered $ local $ addNodes n   -- add the new discovered nodes
 
     local $ do
         addNodes  nodes
         nodes <- getNodes
         liftIO $ putStrLn  "Known nodes: " >> print nodes
 
---    where
---    renameMyNode new=  do
---       con <- getSData  <|> error "connection not set. please initialize it"
---       mynode <- liftIO $ readIORef $ myNode con
---       liftIO $ writeIORef (myNode con) new
---
---       nodes <- getNodes      !> ("renaming", mynode, new)
---       setNodes $ new:(nodes \\[mynode])
+
 #else
 connect _ _= empty
 connect' _ = empty
@@ -1397,11 +1394,12 @@ isWebSocketsReq = not  . null
 
 receiveHTTPHead s = do
   input <-  liftIO $ SBSL.getContents s
+
   setData $ (ParseContext (error "request truncated. Maybe the browser program does not match the server one. \nRecompile the program again with ghcjs <program.hs>  -o static/out") input
              ::ParseContext BS.ByteString)
   (method, uri, vers) <- (,,) <$> getMethod <*> getUri <*> getVers
   headers <- many $ (,) <$> (mk <$> getParam) <*> getParamValue    -- !>  (method, uri, vers)
-  return (method, toStrict uri, headers)                                    -- !>  (method, uri, headers)
+  return (method, toStrict uri, headers)                           -- !>  (method, uri, headers)
 
   where
 
@@ -1445,7 +1443,7 @@ parallelReadHandler= do
        s <- readIORef rest
        [(x,r)] <- maybeRead  s
        writeIORef rest r
-       return  x
+       return x
 
 --    readStream :: (Typeable a, Read a) =>  BS.ByteString -> [StreamData a]
 --    readStream s=  readStream1 $ BS.unpack s
@@ -1458,11 +1456,11 @@ parallelReadHandler= do
 
     maybeRead line= do
          let [(v,left)] = reads  line
-         print v
+--         print v
          (v   `seq` return [(v,left)])
-                        `catch` (\(e::SomeException) -> do
-                          liftIO $ print  $ "******readStream ERROR in: "++take 100 line
-                          maybeRead left)
+--                        `catch` (\(e::SomeException) -> do
+--                          liftIO $ print  $ "******readStream ERROR in: "++take 100 line
+--                          maybeRead left)
 
 
 getString= do
