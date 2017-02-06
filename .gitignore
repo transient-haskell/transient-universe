@@ -51,3 +51,4 @@ tramp
 _darcs
 darcs*
 /src/style.css
+*.back

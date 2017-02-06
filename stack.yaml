@@ -1,9 +1,0 @@
-resolver: lts-6.6
-packages:
-- '.'
-- location:
-    git: https://github.com/agocorona/transient.git
-    commit: b06645a46462e68a2712de8ecd0d8f325b07a520
-  extra-dep: true
-extra-package-dbs: []
-flags: {}
