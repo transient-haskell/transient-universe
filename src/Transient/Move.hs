@@ -41,9 +41,10 @@ single, unique,
 setBuffSize, getBuffSize,
 #endif
 
+#ifndef ghcjs_HOST_OS
 -- * API
-api,
-
+api, HTTPMethod(..), PostParams,
+#endif
 -- * node management
 createNode, createWebNode, createNodeServ, getMyNode, getNodes,
 addNodes, shuffleNodes,
@@ -71,43 +72,44 @@ import Control.Applicative
 #ifndef ghcjs_HOST_OS
 import Network
 import Network.Info
---import qualified Data.IP as IP
-import qualified Network.Socket as NS
-import qualified Network.BSD as BSD
-import qualified Network.WebSockets as NWS(RequestHead(..))
+import Network.URI
+--import qualified Data.IP                              as IP
+import qualified Network.Socket                         as NS
+import qualified Network.BSD                            as BSD
+import qualified Network.WebSockets                     as NWS(RequestHead(..))
 
-import qualified Network.WebSockets.Connection   as WS
+import qualified Network.WebSockets.Connection          as WS
 
-import Network.WebSockets.Stream   hiding(parse)
-import qualified Data.ByteString       as B             (ByteString,concat)
+import           Network.WebSockets.Stream hiding(parse)
+import qualified Data.ByteString                        as B(ByteString,concat)
 import qualified Data.ByteString.Char8 as BC
-import qualified Data.ByteString.Lazy.Internal as BLC
-import qualified Data.ByteString.Lazy as BL
-import qualified Data.ByteString.Lazy.Char8 as BS
-import Network.Socket.ByteString as SBS(send,sendMany,sendAll,recv)
-import qualified Network.Socket.ByteString.Lazy as SBSL
-import Data.CaseInsensitive(mk)
-import Data.Char(isSpace)
---import GHCJS.Perch (JSString)
+import qualified Data.ByteString.Lazy.Internal          as BLC
+import qualified Data.ByteString.Lazy                   as BL
+import qualified Data.ByteString.Lazy.Char8             as BS
+import           Network.Socket.ByteString              as SBS(send,sendMany,sendAll,recv)
+import qualified Network.Socket.ByteString.Lazy         as SBSL
+import           Data.CaseInsensitive(mk)
+import           Data.Char(isSpace)
+
 #else
-import  JavaScript.Web.WebSocket
-import  qualified JavaScript.Web.MessageEvent as JM
-import GHCJS.Prim (JSVal)
-import GHCJS.Marshal(fromJSValUnchecked)
-import qualified Data.JSString as JS
+import           JavaScript.Web.WebSocket
+import qualified JavaScript.Web.MessageEvent           as JM
+import           GHCJS.Prim (JSVal)
+import           GHCJS.Marshal(fromJSValUnchecked)
+import qualified Data.JSString                          as JS
 
 
 import           JavaScript.Web.MessageEvent.Internal
 import           GHCJS.Foreign.Callback.Internal (Callback(..))
-import qualified GHCJS.Foreign.Callback          as CB
-import Data.JSString  (JSString(..), pack)
+import qualified GHCJS.Foreign.Callback                 as CB
+import           Data.JSString  (JSString(..), pack)
 
 #endif
 
 
 import Control.Monad.State
 import System.IO
-import Control.Exception hiding (onException)
+import Control.Exception hiding (onException,try)
 import Data.Maybe
 --import Data.Hashable
 
@@ -665,7 +667,7 @@ mconnect  node@(Node _ _ _ _ )=  do
             sock <-  connectTo'  size  host $ PortNumber $ fromIntegral port
 --                                                                                 !> ("CONNECTING ",port)
             conn <- defConnection >>= \c -> return c{myNode=my,comEvent= ev,connData= Just $ Node2Node u  sock (error $ "addr: outgoing connection")}
-            SBS.sendAll sock "CLOS a b\n\n"
+            SBS.sendAll sock "CLOS a b\r\n\r\n"
 --                                                                                   !> "sending CLOS"
             return conn
 
@@ -897,6 +899,11 @@ listenNew port conn'= do
 --     NS.SockAddrInet6  a b c d -> liftIO $ print("connection from", a, b,c,d)
 
    let conn= conn'{closChildren=chs}
+
+   input <-  liftIO $ SBSL.getContents sock
+   setData $ (ParseContext (error "parsing request") input
+             ::ParseContext BS.ByteString)
+
    initFinish
 
    onFinish $ \me -> do
@@ -907,11 +914,7 @@ listenNew port conn'= do
                   modifyMVar_ closures $ const $ return M.empty
                   writeIORef rmap M.empty
              killChilds
---             st <- get >>= return . fromJust . parent
---
---             liftIO $ NS.close sock
---             liftIO $ writeIORef (labelth st) (Alive,"")
---             liftIO $ killChildren $ children st -- fromJust $ parent st
+
 
 
    (method,uri, headers) <- receiveHTTPHead sock
@@ -924,19 +927,32 @@ listenNew port conn'= do
            parallelReadHandler
 
      _ -> do
-           let uri'= BC.tail $ uriPath uri               -- !> "HTTP REQUEST"
+           let uri'= BC.tail $ uriPath uri              --  !> "HTTP REQUEST"
            if  "api/" `BC.isPrefixOf` uri'
              then do
-                   setData $ conn{connData=Just (Node2Node (PortNumber port)
-                                 sock addr)}
+               setData $ conn{connData=Just (Node2Node (PortNumber port) sock addr)}
+               log <- return $ Exec: (Var $ IDyns $ BS.unpack method):(map (Var . IDyns ) $ split $ BC.unpack $ BC.drop 4 uri')
 
-                   let log =Exec: (map (Var . IDyns ) $ split $ BC.unpack $ BC.drop 4 uri')
 
-                   return $ SMore (0,0, log )
+               str <-  giveData  <|> error "no api data"
+--               ParseContext e str <- getSData <|> error "no api context"
+               log' <- case (method,lookup "Content-Type" headers) of
+                       ("POST",Just "application/x-www-form-urlencoded") -> do
+                            len <- read <$>  BC.unpack
+                                        <$> (Transient $ return (lookup "Content-Length" headers))
+                            setData $ ParseContext (return mempty) $ BS.take len str
+                            return () !> len
+                            postParams <- parsePostUrlEncoded  <|> return []
+                            return $ log ++  [(Var . IDynamic $ postParams)]
+
+                       _ -> return $ log  -- ++ [Var $ IDynamic  str]
+
+               return $ SMore (0,0, log' )
 
              else do
-                   sconn <- httpMode (method, uri', headers) sock  -- stay serving pages until a websocket request is received
-
+                   -- stay serving pages until a websocket request is received
+                   sconn <- servePageMode (method, uri', headers) sock
+                   -- websockets mode
                    setData conn{connData= Just (Node2Web sconn) ,closChildren=chs}
 --                   async (return (SMore (0,0,[Exec]))) <|> do
                    do
@@ -968,8 +984,6 @@ listenNew port conn'= do
       split s=
           let (h,t) = span (/= '/') s
           in h: split  t
-
-
 
 
 
@@ -1011,8 +1025,8 @@ type IdClosure= Int
 
 newtype Closure= Closure IdClosure deriving Show
 
-execLog  mlog = Transient $ do
-       case  mlog            of              --  !> ("RECEIVED ", mlog ) of
+execLog  mlog = Transient $
+       case  mlog  of                         -- !> ("RECEIVED ", mlog ) of
              SError e -> do
                  runTrans $ finish $ Just e
 --                                                                       !> "FINISH2"
@@ -1295,28 +1309,64 @@ connect' _ = empty
 
 #ifndef ghcjs_HOST_OS
 
-readFrom :: Socket         -- ^ Connected socket
-            -> IO BS.ByteString  -- ^ Data received
-readFrom sock =  loop where
--- do
---    s <- SBS.recv sock 40980
---    BLC.Chunk <$> return s <*> return  BLC.Empty
-  loop = unsafeInterleaveIO $ do
-    s <- SBS.recv sock 4098
-    if BC.null s
-      then  return BLC.Empty  -- !>  "EMPTY SOCK"
-      else BLC.Chunk s `liftM` loop
+parallelReadHandler :: Loggable a => TransIO (StreamData a)
+parallelReadHandler= do
+      str <- giveData :: TransIO BS.ByteString
+--                                        :: (TransIO (ParseContext BS.ByteString))
+--      r <-  choose $ readStream str
+      rest <- liftIO $ newIORef $ BS.unpack str
+      r <- parallel $ readStream' rest
+      return r
+--                !> ("read",r)
+--                !> "<-------<----------<--------<----------"
+    where
+    readStream' :: (Loggable a) =>  IORef String  -> IO(StreamData a)
+    readStream' rest = do
+       s <- readIORef rest
+       [(x,r)] <- maybeRead  s
+       writeIORef rest r
+       return x
+
+--    readStream :: (Typeable a, Read a) =>  BS.ByteString -> [StreamData a]
+--    readStream s=  readStream1 $ BS.unpack s
+--     where
+--
+--     readStream1 s=
+--       let [(x,r)] = maybeRead  s
+--       in  x : readStream1 r
+
+
+    maybeRead line= do
+         let [(v,left)] = reads  line
+--         print v
+         (v   `seq` return [(v,left)])
+--                        `catch` (\(e::SomeException) -> do
+--                          liftIO $ print  $ "******readStream ERROR in: "++take 100 line
+--                          maybeRead left)
+
+
+
+
+--readFrom sock =  toStrict <$> loop
+--  where
+--  bufSize= 4098
+--  loop :: IO BL.ByteString
+--  loop = unsafeInterleaveIO $ do
+--    s <- SBS.recv sock bufSize
+--    if BC.length s < bufSize
+--      then  return $ BLC.Chunk s mempty
+--      else BLC.Chunk s `liftM` loop
 
 toStrict= B.concat . BS.toChunks
 
-httpMode (method,uri, headers) sock  = do
+servePageMode (method,uri, headers) sock  = do
 --   return ()                        !> ("HTTP request",method,uri, headers)
    if isWebSocketsReq headers
      then  liftIO $ do
 
          stream <- makeStream                  -- !!> "WEBSOCKETS request"
             (do
-                bs <-  SBS.recv sock 4096 -- readFrom sock
+                bs <-  SBS.recv sock 4098 --  readFrom sock
                 return $ if BC.null bs then Nothing else Just  bs)
             (\mbBl -> case mbBl of
                 Nothing -> return ()
@@ -1382,26 +1432,40 @@ api  w= Cloud  $ do
 data ParseContext a = IsString a => ParseContext (IO  a) a deriving Typeable
 
 
---giveData s= do
---    r <- readFrom s     -- 80000
---    return r               -- !> ( "giveData ", r)
 
 
 isWebSocketsReq = not  . null
     . filter ( (== mk "Sec-WebSocket-Key") . fst)
 
 
+data HTTPMethod= GET | POST deriving (Read,Show,Typeable)
 
 receiveHTTPHead s = do
-  input <-  liftIO $ SBSL.getContents s
 
-  setData $ (ParseContext (error "request truncated. Maybe the browser program does not match the server one. \nRecompile the program again with ghcjs <program.hs>  -o static/out") input
-             ::ParseContext BS.ByteString)
   (method, uri, vers) <- (,,) <$> getMethod <*> getUri <*> getVers
-  headers <- many $ (,) <$> (mk <$> getParam) <*> getParamValue    -- !>  (method, uri, vers)
-  return (method, toStrict uri, headers)                           -- !>  (method, uri, headers)
+  headers <- manyTill paramPair  (string "\r\n\r\n")          -- !>  (method, uri, vers)
+  return (method, toStrict uri, headers)                      -- !>  (method, uri, headers)
 
   where
+  string :: BS.ByteString -> TransIO BS.ByteString
+  string s=withData $ \str -> do
+--      dropSpaces
+
+--      ParseContext e str <- getSData
+      let len= BS.length s
+          ret@(s',str') = BS.splitAt len str
+      if s == s'
+        then do
+--         setData $ ParseContext e $ str'
+         return ret
+        else empty
+
+  paramPair=  (,) <$> (mk <$> getParam) <*> getParamValue
+  manyTill p end  = scan
+      where
+      scan  = do{ end; return [] }
+            <|>
+              do{ x <- p; xs <- scan; return (x:xs) }
 
   getMethod= getString
   getUri= getString
@@ -1409,12 +1473,9 @@ receiveHTTPHead s = do
   getParam= do
       dropSpaces
       r <- tTakeWhile (\x -> x /= ':' && not (endline x))
-      if BS.null r || r=="\r"  then  empty  else  dropChar >> return(toStrict r)
+      if BS.null r || r=="\r"  then  empty  else  dropChar >> return (toStrict r)
 
   getParamValue= toStrict <$> ( dropSpaces >> tTakeWhile  (\x -> not (endline x)))
-
-
-
 
 dropSpaces= parse $ \str ->((),BS.dropWhile isSpace str)
 
@@ -1424,43 +1485,15 @@ endline c= c== '\n' || c =='\r'
 
 --tGetLine= tTakeWhile . not . endline
 
+type PostParams = [(BS.ByteString, String)]
 
-
-
-parallelReadHandler :: Loggable a => TransIO (StreamData a)
-parallelReadHandler= do
-      ParseContext readit str <- getSData <|> error "parallelReadHandler: ParseContext not found"
-                                        :: (TransIO (ParseContext BS.ByteString))
---      r <-  choose $ readStream str
-      rest <- liftIO $ newIORef $ BS.unpack str
-      r <- parallel $ readStream' rest
-      return r
---                !> ("read",r)
---                !> "<-------<----------<--------<----------"
-    where
-    readStream' :: (Loggable a) =>  IORef String  -> IO(StreamData a)
-    readStream' rest = do
-       s <- readIORef rest
-       [(x,r)] <- maybeRead  s
-       writeIORef rest r
-       return x
-
---    readStream :: (Typeable a, Read a) =>  BS.ByteString -> [StreamData a]
---    readStream s=  readStream1 $ BS.unpack s
---     where
---
---     readStream1 s=
---       let [(x,r)] = maybeRead  s
---       in  x : readStream1 r
-
-
-    maybeRead line= do
-         let [(v,left)] = reads  line
---         print v
-         (v   `seq` return [(v,left)])
---                        `catch` (\(e::SomeException) -> do
---                          liftIO $ print  $ "******readStream ERROR in: "++take 100 line
---                          maybeRead left)
+parsePostUrlEncoded :: TransIO PostParams
+parsePostUrlEncoded=  do
+   dropSpaces
+   many $ (,) <$> param  <*> value
+   where
+   param= tTakeWhile' ( /= '=')
+   value= unEscapeString <$> BS.unpack <$> tTakeWhile' ( /= '&')
 
 
 getString= do
@@ -1470,31 +1503,31 @@ getString= do
 tTakeWhile :: (Char -> Bool) -> TransIO BS.ByteString
 tTakeWhile cond= parse (BS.span cond)
 
+tTakeWhile' :: (Char -> Bool) -> TransIO BS.ByteString
+tTakeWhile' cond= parse ((\(h,t) -> (h, if BS.null t then t else BS.tail t)) . BS.span cond)
 
-parse :: Monoid b => (BS.ByteString -> (b, BS.ByteString)) -> TransIO b
-parse split= do
-     ParseContext readit str <- getSData
-                                <|> error "parse: ParseContext not found"
-                                :: TransIO (ParseContext BS.ByteString)
---    if  str == mempty
---     then do
---          error "READIT ERROR*******" -- str3 <- liftIO  readit
---
---          setData $ ParseContext readit str3                     -- !> str3
+parse :: (BS.ByteString -> (b, BS.ByteString)) -> TransIO b
+parse split= withData $ \str ->
 
-     if str== mempty   then empty   -- else  parse split
-     else if BS.take 2 str =="\n\n"  then do setData $ ParseContext readit  (BS.drop 2 str) ; empty
-     else if BS.take 4 str== "\r\n\r\n" then do setData $ ParseContext readit  (BS.drop 4 str) ; empty
-     else do
+     if str== mempty   then empty
 
-          let (ret,str3) = split str
-          setData $ ParseContext readit str3
+     else  return $ split str
 
-          if str3== mempty
-            then   return ret  <> (parse split <|> return mempty)
 
-            else   return ret
+withData :: (BS.ByteString -> TransIO (a,BS.ByteString)) -> TransIO a
+withData parser= Transient $ do
+   ParseContext readMore s <- getData `onNothing` error "parser: no context"
+   str <- liftIO $ return s <> (unsafeInterleaveIO readMore) -- if s/=mempty then return s else liftIO readMore
+   mr <- runTrans $ parser str
+   case mr of
+    Nothing -> return Nothing
+    Just (v,str') -> do
+      setData $ ParseContext readMore str'
+      return $ Just v
 
+giveData =do
+   ParseContext readMore s <- getData `onNothing` error "parser: no context"
+   liftIO $ return s <> (unsafeInterleaveIO readMore)
 
 
 
