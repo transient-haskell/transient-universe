@@ -424,9 +424,18 @@ teleport =  do
      if not rec   -- !> ("teleport rec,loc fulLog=",rec,log,fulLog)
                   -- if is not recovering in the remote node then it is active
       then  do
-         conn@Connection{closures= closures,calling= calling} <- getData
+        conn@Connection{connData=contype,closures= closures,calling= calling} <- getData
              `onNothing` error "teleport: No connection defined: use wormhole"
+#ifndef ghcjs_HOST_OS
+        case contype of
+         Just Self -> do
 
+               setData $ if (not calling) then  WasRemote else WasParallel
+               runTrans $ async $ return ()  -- !> "SELF" -- call himself
+         _ -> do
+#else
+        do
+#endif
          --read this Closure
          Closure closRemote  <- getData `onNothing` return (Closure 0 )
 
@@ -771,7 +780,7 @@ mconnect  node@(Node _ _ _ _ )=  do
       _ -> do
 --        liftIO $ putStr "*****CONNECTING NODE: " >> print node
         my <- getMyNode
---        liftIO  $ putStr "OPENING CONNECTION WITH :" >> print port
+
         Connection{comEvent= ev} <- getSData <|> error "connect: listen not set for this node"
 
 #ifndef ghcjs_HOST_OS
@@ -854,9 +863,10 @@ data ConnectionData=
                              }
                    | TLSNode2Node{tlscontext :: SData}
                    | Node2Web{webSocket :: WS.Connection}
+                   | Self
 #else
-
-                   Web2Node{webSocket :: WebSocket}
+                   Self
+                   | Web2Node{webSocket :: WebSocket}
 #endif
 
 data MailboxId= MailboxId Int TypeRep deriving (Eq,Ord)
@@ -923,9 +933,10 @@ listen  (node@(Node _   port _ _ )) = onAll $ do
    conn' <- getSData <|> defConnection
    ev <- liftIO $ newIORef M.empty
    chs <- liftIO $ newIORef M.empty
-   let conn= conn'{myNode=node, comEvent=ev,closChildren=chs}
+   let conn= conn'{connData=Just Self,myNode=node, comEvent=ev,closChildren=chs}
 
    setData conn
+   liftIO $ modifyMVar_ (connection node) $ const $ return [conn]
    addNodes [node]
    mlog <- listenNew (fromIntegral port) conn  <|> listenResponses
 
