@@ -1,8 +1,10 @@
 #!/usr/bin/env ./execthirdline.sh
+-- development:
+-- set -e  && docker run -it -v /c/Users/magocoal/OneDrive/Haskell/devel:/devel agocorona/transient:05-02-2017  bash -c "runghc  -j2 -isrc -i/devel/transient/src -i/devel/transient-universe/src /devel/transient-universe/tests/$1 $2 $3 $4"
+
 -- compile and run within a docker image
 -- set -e && executable=`basename -s .hs ${1}` &&  docker run -it -v $(pwd):/work agocorona/transient:05-02-2017  bash -c "ghc /work/${1} && /work/${executable} ${2} ${3}"
 
--- set -e  && docker run -it -v /c/Users/magocoal/OneDrive/Haskell/devel:/devel agocorona/transient:05-02-2017  bash -c "runghc  -j2 -isrc -i/devel/transient/src -i/devel/transient-universe/src /devel/transient-universe/examples/$1 $2 $3 $4"
 
 {-# LANGUAGE CPP #-}
 module Main where

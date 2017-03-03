@@ -75,7 +75,7 @@ inputNodes= onServer $ do
 
           port <-  local $ input (const True) "port? "
 
-          connectit <- local $ input (\x -> x=="y" || x== "n") "connect to the node to interchange nodes lists?"
+          connectit <- local $ input (\x -> x=="y" || x== "n") "connect to the node to interchange node lists? "
           nnode <- localIO $ createNode host port
           if connectit== "y" then connect'  nnode
                              else  local $ do

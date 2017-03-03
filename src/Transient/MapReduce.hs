@@ -32,7 +32,7 @@ data PartRef a=PartRef a
 
 #else
 
-import Transient.Base
+import Transient.Internals
 
 import Transient.Move hiding (pack)
 import Transient.Logged
@@ -52,7 +52,7 @@ import Control.Exception
 import Control.Concurrent
 --import Data.Time.Clock
 import Network.HTTP
-import Data.TCache
+import Data.TCache hiding (onNothing)
 import Data.TCache.Defs
 
 import Data.ByteString.Lazy.Char8 (pack,unpack)
@@ -168,12 +168,12 @@ mapKey :: (Distributable vector a,Distributable vector b, Loggable k,Ord k)
      -> DDS (M.Map k (vector b))
 mapKey f (DDS mx)= DDS $ loggedc $  do
         refs <-  mx
-        process refs
+        process refs                            -- !> ("process",refs)
 
   where
 --  process ::  Partition a -> Cloud [Partition b]
   process  (ref@(Ref node path sav))= runAt node $ local $ do
-              xs <- getPartitionData ref    -- !> ("CMAP", ref,node)
+              xs <- getPartitionData ref         -- !> ("CMAP", ref,node)
               (generateRef  $ map1 f xs)
 
 
@@ -296,7 +296,7 @@ reduce red  (dds@(DDS mx))= loggedc $ do
                                     Nothing    ->  input) map
 
                 mapM addIt  (kvs `asTypeOf` paramOf' dds)
---                                                                     !> ("Received Reduce",kvs)
+                                                                   --  !> ("Received Reduce",kvs)
                 stop
 
 
@@ -358,7 +358,7 @@ getPartitionData2 (Ref node path save)  =  do
 --   se pone ese nodo de referencia en Part
 runAtP :: Loggable a => Node  -> (Path -> IO a) -> Path -> Cloud a
 runAtP node f uuid= do
-   r <- streamFrom node $ onAll . liftIO $ (SLast <$> f uuid) `catch` sendAnyError
+   r <- runAt node $ onAll . liftIO $ (SLast <$> f uuid) `catch` sendAnyError
    case r of
      SLast r -> return r
      SError e -> do
@@ -412,7 +412,7 @@ distribute'' xss nodes =
 -- The function parameter partition the text in words
 getText  :: (Loggable a, Distributable vector a) => (String -> [a]) -> String -> DDS (vector a)
 getText part str= DDS $ loggedc $ do
-   nodes' <- local getNodes                                        -- !> "DISTRIBUTE"
+   nodes' <- local getNodes                                        -- !> "getText"
    let nodes  = filter (not . isWebNode) nodes'
    let lnodes = length nodes
 
