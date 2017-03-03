@@ -101,7 +101,7 @@ test-suite test-transient
             bytestring -any,
             time -any,
             vector -any,
-            TCache -any,
+            TCache >= 0.12,
             websockets -any,
             network-uri -any,
             case-insensitive -any,
