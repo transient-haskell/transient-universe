@@ -735,7 +735,7 @@ mclose :: Connection -> IO ()
 #ifndef ghcjs_HOST_OS
 
 mclose (Connection _
-   (Just (Node2Node _  sock _ )) _ _ _ _ _ _)= NS.sClose sock
+   (Just (Node2Node _  sock _ )) _ _ _ _ _ _)= NS.close sock
 
 mclose (Connection node
    (Just (Node2Web sconn ))
