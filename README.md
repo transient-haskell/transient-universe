@@ -13,7 +13,7 @@ transient-universe is the distributed computing extension of [transient](https:/
 
 The primitives that perform the moving of computations are called `wormhole` and `teleport`, the names express the semantics. Hence the name of the package.
 
-All the nodes run the same program compiled for different architectures. It defines a Cloud way of computing (monad). It is a thin layer on top of transient with additional primitives and services that run a single program in one or many nodes.
+All the nodes run the same program compiled for different architectures. It defines a Cloud computation (monad). It is a thin layer on top of transient with additional primitives and services that run a single program in one or many nodes.
 
 Browser integration
 ==================
@@ -27,6 +27,14 @@ Browser nodes can integrate Hplayground for ghcjs, a reactive client side librar
 Widgets with code running in browser and servers can compose with other widgets. A Browser node can gain access to many server nodes trough the  server that delivered the web application. 
 
 These features can make transient ideal for client as well as server side-driven applications, whenever distribution and push-driven reactivity is necessary either in the servers or in the browser clients.
+
+New
+===
+The last release add 
+
+  - Hooks for secure communications
+  - Client websocket connections to connect with nodes within firewalled servers
+  - No network traffic when a node invokes itself
 
 Map-reduce
 ==========
@@ -56,43 +64,8 @@ All the other distributed primitives: `runAt`, `streamFrom` `clustered` etc are 
 
 How to run the ghcjs example:
 =============================
-You need ghc and ghcjs installed.
 
-clone and install perch:
-
-    > git clone https://github.com/geraldus/ghcjs-perch
-    > cd ghcjs-perch
-    > cabal install --ghcjs -f ghcjs
-
-clone and install  transient:
-
-    > git clone https://github.com/agocorona/transient
-    > cd transient
-    > cabal install
-    > cabal install --ghcjs
-
-clone and install hplay:
-
-    > git clone https://github.com/agocorona/ghcjs-hplay
-    > cd ghcjs-hplay
-    > cabal install
-    > cabal install --ghcjs -f ghcjs
-
-clone and install  transient-universe:
-
-    > git clone https://github.com/agocorona/transient-universe
-    > cd transient-universe
-    > cabal install
-    > cabal install --ghcjs
-
-for fast development interactions, use the script
-
-    > buildrun examples/webapp.hs
-
-This will compile examples/webapp.hs for ghcjs and run it interpreted with runghc
-
-
-then point a browser to: http:localhost:2020
+See the  distributed examples in the [transient-examples](https://github.com/transient-haskell/transient) repository
 
 See this [video](https://www.livecoding.tv/agocorona/videos/Ke1Qz-seamless-composable-web-programming) to see this example running:
 
