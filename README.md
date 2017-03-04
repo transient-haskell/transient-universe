@@ -32,8 +32,8 @@ New
 ===
 The last release add 
 
-  - Hooks for secure communications
-  - Client websocket connections to connect with nodes within firewalled servers
+  - Hooks for secure communications: with transient-tls, a node can use TLS to connect with other nodes, including web nodes. If the connection of a web node is initiated with "https" the websocket connection uses secure communications (wss).
+  - Client websocket connections to connect with nodes within firewalled servers: a server node can connect with another situated after a HTTP server. first `connect` tries a TCP socket connection if it receives other message than "OK", it tries a connection as a websocket client. This is important for P2P connections where a central server acts as coordinator.
   - No network traffic when a node invokes itself
 
 Map-reduce
