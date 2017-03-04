@@ -349,9 +349,7 @@ wormhole node (Cloud comp) = local $ Transient $ do
                     conn <-  mconnect node
 
                     setData  conn{calling= True}
--- #ifdef ghcjs_HOST_OS
---                    addPrefix    -- for the DOM identifiers
--- #endif
+
                     comp )
                   <*** do when (isJust moldconn) . setData $ fromJust moldconn
                           when (isJust mclosure) . setData $ fromJust mclosure
