@@ -22,7 +22,6 @@ import           Transient.Internals
 import           Transient.Indeterminism
 import           Transient.Logged
 import           Transient.Move
-import           Transient.Stream.Resource
 import           Transient.MapReduce
 import           Transient.EVars
 import           Control.Concurrent
