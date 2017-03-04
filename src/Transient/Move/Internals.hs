@@ -1152,13 +1152,13 @@ listenResponses= do
 
       cutExceptions
       onException $ \(e:: SomeException) -> do
-         liftIO $ print e
-         liftIO $ putStr "removing2 node: " >> print node
-         nodes <- getNodes
-         setNodes $ nodes \\ [node]
-         killChilds
-         let Connection{closures=closures}= conn
-         liftIO $ modifyMVar_ closures $ const $ return M.empty
+                             liftIO $ print e
+                             liftIO $ putStr "removing2 node: " >> print node
+                             nodes <- getNodes
+                             setNodes $ nodes \\ [node]
+                             killChilds
+                             let Connection{closures=closures}= conn
+                             liftIO $ modifyMVar_ closures $ const $ return M.empty
 
 
       mread conn
