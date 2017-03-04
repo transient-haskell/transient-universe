@@ -1140,25 +1140,17 @@ listenResponses= do
       setData (parsecontext :: ParseContext JSString)
 #endif
 
--- #ifndef ghcjs_HOST_OS
---
---
---      case conn of
---             Connection _(Just (Node2Node _ sock _)) _ _ _ _ _ _ -> do
---                 input <- liftIO $ SBSL.getContents sock
---                 setData $ (ParseContext (error "listenResponses: Parse error") input :: ParseContext BS.ByteString)
---
--- #endif
+
 
       cutExceptions
-      onException $ \(e:: SomeException) -> do
+      onException (\(e:: SomeException) -> do
                              liftIO $ print e
                              liftIO $ putStr "removing2 node: " >> print node
                              nodes <- getNodes
                              setNodes $ nodes \\ [node]
                              killChilds
                              let Connection{closures=closures}= conn
-                             liftIO $ modifyMVar_ closures $ const $ return M.empty
+                             liftIO $ modifyMVar_ closures $ const $ return M.empty)
 
 
       mread conn
