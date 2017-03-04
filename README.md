@@ -9,7 +9,7 @@
 
 See the [Wiki](https://github.com/agocorona/transient/wiki)
 
-transient-universe is the distributed computing extension of [transient](https://github.com/agocorona/transient).  It support moving computations between Haskell closures in different computers in the network. Even among different architectures:  Linux nodes can work with windows and browser nodes running haskell compiled with [ghcjs](https://github.com/ghcjs/ghcjs).
+transient-universe is the distributed computing extension of [transient](https://github.com/agocorona/transient) and uses transient primitives heavily for parsing, threading, event handling, exception handling, messaging etc.  It support moving computations between Haskell closures in different computers in the network. Even among different architectures:  Linux nodes can work with windows and browser nodes running haskell compiled with [ghcjs](https://github.com/ghcjs/ghcjs).
 
 The primitives that perform the moving of computations are called `wormhole` and `teleport`, the names express the semantics. Hence the name of the package.
 
@@ -32,8 +32,8 @@ New
 ===
 The last release add 
 
-  - Hooks for secure communications
-  - Client websocket connections to connect with nodes within firewalled servers
+  - Hooks for secure communications: with [transient-universe-tls package](https://github.com/transient-haskell/transient-universe-tls), a node can use TLS to connect with other nodes, including web nodes. If the connection of a web node is initiated with "https" the websocket connection uses secure communications (wss). The only primitive added is `initTLS`.
+  - Client websocket connections to connect with nodes within firewalled servers: a server node can connect with another situated after a HTTP server. All the process is transparent and add no new primitive; First `connect` tries a TCP socket connection if it receives other message than "OK", it tries a connection as a websocket client. This is important for P2P connections where a central server acts as coordinator. websocket connections can use TLS communications too.
   - No network traffic when a node invokes itself
 
 Map-reduce
