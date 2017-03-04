@@ -32,8 +32,8 @@ data PartRef a=PartRef a
 
 #else
 
-import Transient.Base
-import Transient.Internals((!>))
+import Transient.Internals
+
 import Transient.Move hiding (pack)
 import Transient.Logged
 import Transient.Indeterminism
@@ -52,7 +52,7 @@ import Control.Exception
 import Control.Concurrent
 --import Data.Time.Clock
 import Network.HTTP
-import Data.TCache
+import Data.TCache hiding (onNothing)
 import Data.TCache.Defs
 
 import Data.ByteString.Lazy.Char8 (pack,unpack)
@@ -66,6 +66,7 @@ import System.IO.Unsafe
 
 import qualified Data.Foldable as F
 import qualified Data.Text as Text
+import Data.IORef
 
 data DDS a= Loggable a => DDS  (Cloud (PartRef a))
 data PartRef a= Ref Node Path Save deriving (Typeable, Read, Show)
@@ -167,12 +168,12 @@ mapKey :: (Distributable vector a,Distributable vector b, Loggable k,Ord k)
      -> DDS (M.Map k (vector b))
 mapKey f (DDS mx)= DDS $ loggedc $  do
         refs <-  mx
-        process refs
+        process refs                            -- !> ("process",refs)
 
   where
 --  process ::  Partition a -> Cloud [Partition b]
   process  (ref@(Ref node path sav))= runAt node $ local $ do
-              xs <- getPartitionData ref    -- !> ("CMAP", ref,node)
+              xs <- getPartitionData ref         -- !> ("CMAP", ref,node)
               (generateRef  $ map1 f xs)
 
 
@@ -186,29 +187,24 @@ mapKey f (DDS mx)= DDS $ loggedc $  do
 
 
 
---instance Show a => Show (MVar a) where
---   show mvx= "MVar " ++ show (unsafePerformIO $ readMVar mvx)
---
---instance Read a => Read (MVar a) where
---   readsPrec n ('M':'V':'a':'r':' ':s)=
---      let [(x,s')]= readsPrec n s
---      in [(unsafePerformIO $ newMVar x,s')]
-
 data ReduceChunk a= EndReduce | Reduce a deriving (Typeable, Read, Show)
+
+boxids= unsafePerformIO $ newIORef 0
 
 reduce ::  (Hashable k,Ord k, Distributable vector a, Loggable k,Loggable a)
              => (a -> a -> a) -> DDS (M.Map k (vector a)) ->Cloud (M.Map k a)
 
 reduce red  (dds@(DDS mx))= loggedc $ do
 
-   box <- lliftIO $ return . Text.pack =<<  replicateM  10 (randomRIO ('a','z'))
+   mboxid <- localIO $ atomicModifyIORef boxids $ \n -> let n'= n+1 in (n',n')
    nodes <- local getNodes
 
    let lengthNodes = length nodes
        shuffler nodes = do
-          ref@(Ref node path sav) <- mx
---          return ()                                  !> ref
-          runAt node  $  foldAndSend  nodes ref
+
+          ref@(Ref node path sav) <- mx     -- return the resulting blocks of the map
+
+          runAt node $ foldAndSend node nodes ref
 
           stop
 
@@ -221,36 +217,45 @@ reduce red  (dds@(DDS mx))= loggedc $ do
 
 
 --           foldAndSend :: (Hashable k, Distributable vector a)=> (Int,[(k,vector a)]) -> Cloud ()
-       foldAndSend nodes ref=  do
+       foldAndSend node nodes ref=  do
 
              pairs <- onAll $ getPartitionData1 ref
                         <|>  return (error $ "DDS computed out of his node:"++ show ref)
              let mpairs = groupByDestiny pairs
+
              length <- local . return $ M.size mpairs
 
-             nsent <-  onAll $ liftIO $ newMVar 0
+             let port2= nodePort node
 
-             (i,folded) <- local $ parallelize foldthem (M.assocs  mpairs)
 
-             n <- lliftIO $ modifyMVar nsent $ \r -> return (r+1, r+1)
-             runAt (nodes !! i) $  local $ putMailbox box $ Reduce folded
+             if  length == 0 then sendEnd   nodes else do
 
-             when (n == length) $ sendEnd  nodes
+                 nsent <-  onAll $ liftIO $ newMVar 0
+
+                 (i,folded) <- local $ parallelize foldthem (M.assocs  mpairs)
+
+                 n <- localIO  $ modifyMVar nsent $ \r -> return (r+1, r+1)
+
+                 runAt (nodes !! i) $  local $ putMailbox' mboxid (Reduce folded)
+--                                                     !> ("send",n,length,port,i,folded))
+
+--                 return () !> (port,n,length)
+
+                 when (n == length) $ sendEnd   nodes
+                 empty
 
              where
-             count n proc proc2=  do
-                             nsent <-  onAll $ liftIO $ newMVar 0
-                             proc
-                             n' <- lliftIO $ modifyMVar nsent $ \r -> return (r+1, r+1)
-                             when (n'==n) proc2
+
 
              foldthem (i,kvs)=  async . return
                                 $ (i,map (\(k,vs) -> (k,foldl1 red vs)) kvs)
 
 
-       sendEnd nodes   = onNodes nodes . local $  putMailbox box (EndReduce `asTypeOf` paramOf dds)
-                                                         -- !> ("send ENDREDUCE",mynode)
-       onNodes  nodes f= foldr (<|>) empty $ map (\n -> runAt n f) nodes
+       sendEnd  nodes   =  onNodes nodes $ local
+                            $  putMailbox'  mboxid (EndReduce `asTypeOf` paramOf dds)
+--                                                  !> ("send ENDREDUCE ", port))
+
+       onNodes nodes f = foldr (<|>) empty $ map (\n -> runAt n f) nodes
 
        sumNodes nodes f= foldr (<>) mempty $ map (\n -> runAt n f) nodes
 
@@ -262,19 +267,21 @@ reduce red  (dds@(DDS mx))= loggedc $ do
            reduceResults <- liftIO $ newMVar M.empty
            numberSent    <- liftIO $ newMVar 0
 
-           minput <- getMailbox box  -- get the chunk once it arrives to the mailbox
+           minput <- getMailbox' mboxid  -- get the chunk once it arrives to the mailbox
 
            case minput  of
 
              EndReduce -> do
 
-                n <- liftIO $ modifyMVar numberSent $ \r -> return (r+1, r+1)
+                n <- liftIO $ modifyMVar numberSent $ \r -> let r'= r+1 in return (r', r')
 
-                if n == lengthNodes             --  !> ("END REDUCE RECEIVED",n, lengthNodes,mynode)
+
+                if n == lengthNodes
+--                                              !> ("END REDUCE RECEIVED",n, lengthNodes)
                  then do
-                    cleanMailbox box (EndReduce `asTypeOf` paramOf dds)
+                    cleanMailbox' mboxid (EndReduce `asTypeOf` paramOf dds)
                     r <- liftIO $ readMVar reduceResults
-                    return r                    --  !> ("reduceresult",r)
+                    return r
 
                  else stop
 
@@ -287,7 +294,9 @@ reduce red  (dds@(DDS mx))= loggedc $ do
                                   return $ M.insert k (case maccum of
                                     Just accum ->  red input accum
                                     Nothing    ->  input) map
-                mapM addIt  (kvs `asTypeOf` paramOf' dds)        --  !> ("Received Reduce",kvs)
+
+                mapM addIt  (kvs `asTypeOf` paramOf' dds)
+                                                                   --  !> ("Received Reduce",kvs)
                 stop
 
 
@@ -349,7 +358,7 @@ getPartitionData2 (Ref node path save)  =  do
 --   se pone ese nodo de referencia en Part
 runAtP :: Loggable a => Node  -> (Path -> IO a) -> Path -> Cloud a
 runAtP node f uuid= do
-   r <- streamFrom node $ onAll . liftIO $ (SLast <$> f uuid) `catch` sendAnyError
+   r <- runAt node $ onAll . liftIO $ (SLast <$> f uuid) `catch` sendAnyError
    case r of
      SLast r -> return r
      SError e -> do
@@ -403,7 +412,7 @@ distribute'' xss nodes =
 -- The function parameter partition the text in words
 getText  :: (Loggable a, Distributable vector a) => (String -> [a]) -> String -> DDS (vector a)
 getText part str= DDS $ loggedc $ do
-   nodes' <- local getNodes                                        -- !> "DISTRIBUTE"
+   nodes' <- local getNodes                                        -- !> "getText"
    let nodes  = filter (not . isWebNode) nodes'
    let lnodes = length nodes
 
@@ -418,7 +427,6 @@ getText part str= DDS $ loggedc $ do
                 xss= Transient.MapReduce.fromList $
                        if i== lnodes-1 then drop (i* size) xs else  take size $ drop  (i *  size) xs
             generateRef  xss
-
 
 -- | get the worlds of an URL
 textUrl :: String -> DDS (DV.Vector Text.Text)

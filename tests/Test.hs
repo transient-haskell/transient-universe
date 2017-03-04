@@ -1,134 +1,80 @@
-{-# LANGUAGE DataKinds                  #-}
-{-# LANGUAGE DeriveGeneric              #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE LambdaCase                 #-}
-{-# LANGUAGE OverloadedStrings          #-}
-{-# LANGUAGE TypeOperators              #-}
+#!/usr/bin/env ./executor.sh
+-- set -e  && docker run -it -v /c/Users/magocoal/OneDrive/Haskell/devel:/devel agocorona/transient:01-27-2017  bash -c "runghc  -j2 -isrc -i/devel/transient/src -i/devel/transient-universe/src /devel/transient-universe/tests/$1 $2 $3 $4"
+
+{-# LANGUAGE ScopedTypeVariables #-}
+import Transient.Internals
+import Transient.EVars
+import Transient.Move
+import Transient.Indeterminism
+import Transient.Move.Utils
+import Control.Applicative
+import Control.Exception
+import GHC.Conc
+import Control.Monad.IO.Class
+import Control.Monad.State
+import Data.Maybe
+import Control.Concurrent.MVar
+import qualified Data.Map as M
+
+main= do
+     let numNodes = 3
+         ports = [2000 .. 2000 + numNodes - 1]
+         createLocalNode = createNode "localhost"
+
+     nodes <- mapM createLocalNode ports
+     let n2000= head nodes
+         n2001= nodes !! 1
+         n2002= nodes !! 2
 
 
-module Main where
+     keep $ runCloud $ do
 
-import           Control.Applicative
-import           Control.Concurrent         (forkIO, threadDelay)
-import           Control.Concurrent.MVar
-import           Control.Monad
-import           Control.Monad.IO.Class
-import           Control.Monad.Trans.Except
-import           Data.Aeson
-import           Data.ByteString.Lazy       as DBL hiding (elemIndex, length)
-import           Data.Hashable
-import           Data.IORef
-import           Data.List
-import           Data.Map                   as M
-import           Data.Maybe
-import qualified Data.Text                  as DT
-import           Data.Typeable
-import           Data.UUID
-import           Data.UUID.Aeson
-import           Data.UUID.V4
-import           GHC.Generics
-import           Network.Wai
-import           Network.Wai.Handler.Warp   hiding (run)
-import           Servant                    hiding (Handler)
-import           Servant.API
-import           System.IO
-import           System.IO.Unsafe
-import           Transient.Base
-import           Transient.Move
-import           Transient.Move.Utils
-import           Transient.Internals
+        runNodes nodes
 
-newtype VendorId = VendorId UUID
-  deriving(Eq, Ord, FromHttpApiData)
 
-newtype ItemId = ItemId UUID
-  deriving(Eq, Ord, FromHttpApiData)
 
-type ItemApi =
-  "item" :> Get '[JSON] [Item] :<|>
-  "item" :> Capture "itemId" ItemId :> Capture "vendorId" VendorId :> Get '[JSON] Item
+        nodes <- local getNodes
 
-itemApi :: Proxy ItemApi
-itemApi = Proxy
+        let lengthNodes = length nodes
 
--- * app
+        (node, mpairs) <- local $ choose[
+                                [(1,[("2",[1])])],
+                                [(0,[("6",[1])])],
+                                [(0,[("6",[1])]),(1,[("4",[1])])] ]
 
-instance FromHttpApiData UUID where
-  parseUrlPiece t = case fromText t of
-    Just u -> Right u
-    Nothing -> Left "Invalid UUID"
+        runAt node $ foldAndSend node nodes part
 
-run :: IO ()
-run = do
-  let port = 3000
-      settings =
-        setPort port $
-        setBeforeMainLoop (hPutStrLn stderr ("listening on port " ++ show port)) defaultSettings
-  runSettings settings =<< mkApp
 
-mkApp :: IO Application
-mkApp = return $ serve itemApi server
-
-server :: Server ItemApi
-server =
-  getItems :<|>
-  getItemById
-
-type Handler = ExceptT ServantErr IO
-
-getItems :: Handler [Item]
-getItems = return [exampleItem]
-
-getItemById :: ItemId -> VendorId -> Handler Item
-getItemById i@(ItemId iid) v@(VendorId vid) = do
-  let h = hash $ toString iid ++ toString vid
-  liftIO $ runCloudIO $ do
-    local $ liftIO (readIORef ref) >>= \dat -> modify s{mfData= dat}
-    nodes <- onAll getNodes
-    let num = h `rem` length nodes
-    let node = sort nodes !! num
-    m <- hashmap
-    quant <- runAt node $ return $ fromJust $ M.lookup (v, i) m
-    return $ Item quant "Item 1"
+        where
 
 
 
 
-exampleItem :: Item
-exampleItem = Item 0 "example item"
+--           foldAndSend :: (Hashable k, Distributable vector a)=> (Int,[(k,vector a)]) -> Cloud ()
+        foldAndSend nodei nodes mpairs=  do
 
--- * item
+             length <- local . return $ M.size mpairs
+             port <- local $ getMyNode >>= return . nodePort
+             let port2= nodePort nodes ! nodei
+             local $ assert (port==port2) $ return ()  !> (port,port2)
 
-data Item
-  = Item {
-    itemId   :: Int,
-    itemText :: String
-  }
-  deriving (Eq, Show, Generic)
+             if  length == 0 then sendEnd  port nodes else do
 
-instance ToJSON Item
-instance FromJSON Item
+                 nsent <-  onAll $ liftIO $ newMVar 0
+
+                 (i,folded) <- local $ parallelize foldthem (M.assocs  mpairs)
+
+                 n <- localIO  $ modifyMVar nsent $ \r -> return (r+1, r+1)
+
+                 runAt (nodes !! i) $  local $ (putMailbox (Reduce folded)
+                                                     !> ("send",n,length,port,i,folded))
+
+                 return () !> (port,n,length)
+
+                 when (n == length) $ sendEnd  port nodes
+                 empty
 
 
---connectionHandle = connect "localhost" 28015 Nothing
-hashmap :: Cloud (Map (VendorId, ItemId) Int)
-hashmap = onAll (return $ M.fromList [((VendorId . fromJust $ fromText "bacd5f20-8b46-4790-b93f-73c47b8def72", ItemId . fromJust $ fromText "db6af727-1007-4cae-bd24-f653b1c6e94e"), 10),
-                                      ((VendorId . fromJust $ fromText "8f833732-a199-4a74-aa55-a6cd7b19ab66", ItemId . fromJust $ fromText "d6693304-3849-4e69-ae31-1421ea320de4"), 10)])
 
-ref= unsafePerformIO $ newIORef (error "state should have been written here!")
-main :: IO ()
-main = do
-  runCloudIO' $ do
-    seed <- lliftIO $ createNode "localhost" 8000
-    node <- lliftIO $ createNode "localhost" 8000
-    connect node seed
-    local $ gets mfData >>= liftIO . writeIORef ref
-    nodes <- onAll getNodes
-    lliftIO $ print $ length nodes
-    m <- hashmap
-    -- let num = fromJust $ elemIndex node (sort nodes)
-    -- quant <- runAt (nodes !! num) $ return $ M.lookup num m
-    -- lliftIO $ print quant
-    (do i <- local $ getMailbox "mailbox" ; lliftIO $ print (i::Int))
-        <|> (do clustered $ local $ putMailbox "mailbox" (123::Int)  ; Control.Applicative.empty)
-        <|> lliftIO run
+
+runNodes nodes= foldr (<|>) empty (map listen nodes) <|> return ()

@@ -16,8 +16,8 @@ module Transient.Move.Utils (initNode,inputNodes, simpleWebApp, initWebApp
 , onServer, onBrowser, runTestNodes)
  where
 
-import Transient.Base
---import Transient.Internals((!>))
+--import Transient.Base
+import Transient.Internals
 import Transient.Move
 import Control.Applicative
 import Control.Monad.IO.Class
@@ -64,9 +64,9 @@ initNode app= do
           liftIO $ createNode host port
 
 -- | ask for nodes to be added to the list of known nodes. it also ask to connect to the node to get
--- his list of known nodes
-inputNodes= do
-   onServer $ do
+-- his list of known nodes. It returns empty
+inputNodes :: Cloud empty
+inputNodes= onServer $ do
           local $ option "add"  "add a new node at any moment"
 
           host <- local $ do
@@ -75,14 +75,13 @@ inputNodes= do
 
           port <-  local $ input (const True) "port? "
 
-          connectit <- local $ input (\x -> x=="y" || x== "n") "connect to the node to interchange nodes lists?"
+          connectit <- local $ input (\x -> x=="y" || x== "n") "connect to the node to interchange node lists? "
           nnode <- localIO $ createNode host port
           if connectit== "y" then connect'  nnode
                              else  local $ do
                                liftIO $ putStr "Added node: ">> print nnode
                                addNodes [nnode]
-   empty
-
+          empty
 
 
 -- | executes the application in the server and the Web browser.
@@ -105,6 +104,7 @@ simpleWebApp :: Integer -> Cloud () -> IO ()
 simpleWebApp port app = do
    node <- createNode "localhost" port
    keep $ initWebApp node app
+   return ()
 
 -- | use this instead of smpleWebApp when you have to do some initializations in the server prior to the
 -- initialization of the web server
@@ -117,10 +117,9 @@ initWebApp node app=  do
     mynode <- if isBrowserInstance
                     then liftIO $ createWebNode
                     else return serverNode
-
     runCloud $ do
         listen mynode <|> return()
-        wormhole serverNode app   -- !> ("servernode", serverNode)
+        wormhole serverNode app
         return ()
 
 -- only execute if the the program is executing in the browser. The code inside can contain calls to the server.

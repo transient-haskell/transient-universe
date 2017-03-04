@@ -1,110 +1,115 @@
 name: transient-universe
-version: 0.3.5.1
+version: 0.4.0
 cabal-version: >=1.10
 build-type: Simple
 license: MIT
 license-file: LICENSE
-
-author: Alberto G. Corona
 maintainer: agocorona@gmail.com
 homepage: http://www.fpcomplete.com/user/agocorona
-bug-reports: https://github.com/transient-haskell/transient-universe/issues
-
+bug-reports: https://github.com/agocorona/transient-universe/issues
 synopsis: Remote execution and map-reduce: distributed computing for Transient
 description:
-    See <http://github.com/transient-haskell/transient>.
+    See <http://github.com/agocorona/transient>.
 category: Control
-
-extra-source-files: app/client/Transient/Move/Services/MonitorService.hs
-                    app/server/Transient/Move/Services/MonitorService.hs
+author: Alberto G. Corona
+extra-source-files:
+    ChangeLog.md README.md
+    app/client/Transient/Move/Services/MonitorService.hs
+    app/server/Transient/Move/Services/MonitorService.hs
 
 source-repository head
     type: git
     location: https://github.com/agocorona/transient-universe
 
 library
-    exposed-modules:
-        Transient.Move
-        Transient.MapReduce
-        Transient.Move.Utils
+
     if !impl(ghcjs >=0.1)
         exposed-modules:
             Transient.Move.Services
 
-    build-depends: base                >4 && <5,
-                   bytestring          -any,
-                   containers          -any,
-                   mtl                 -any,
-                   process             -any,
-                   random              -any,
-                   stm                 -any,
-                   text                -any,
-                   time                -any,
-                   transformers        -any,
-                   transient           >=0.4.4.1
     if impl(ghcjs >=0.1)
-        build-depends: ghcjs-base -any,
-                       ghcjs-prim -any
+        build-depends:
+            ghcjs-base -any,
+            ghcjs-prim -any
     else
-        build-depends: HTTP                -any,
-                       TCache              -any,
-                       case-insensitive    -any,
-                       directory           -any,
-                       filepath            -any,
-                       hashable            -any,
-                       iproute             -any,
-                       network             -any,
-                       network-info        -any,
-                       network-uri         -any,
-                       vector              -any,
-                       websockets          -any
+        build-depends:
+            HTTP -any,
+            TCache -any,
+            case-insensitive -any,
+            directory -any,
+            filepath -any,
+            hashable -any,
+            iproute -any,
+            network -any,
+            network-info -any,
+            network-uri -any,
+            vector -any,
+            websockets -any
+    exposed-modules:
+        Transient.Move
+        Transient.MapReduce
+        Transient.Move.Internals
+        Transient.Move.Utils
+    build-depends:
+        base >4 && <5,
+        bytestring -any,
+        containers -any,
+        mtl -any,
+        process -any,
+        random -any,
+        stm -any,
+        text -any,
+        time -any,
+        transformers -any,
+        transient >=0.5.1
     default-language: Haskell2010
     hs-source-dirs: src .
 
-
 executable monitorService
-  build-depends: base >4 && <5
-  if !impl(ghcjs >=0.1)
-    hs-source-dirs: app/server/Transient/Move/Services
-    build-depends: transformers
-                 , transient >=0.4.4.1
-                 , transient-universe
-  else
-    hs-source-dirs: app/client/Transient/Move/Services
-  main-is:      MonitorService.hs
-  default-language:  Haskell2010
-  ghc-options:  -threaded -rtsopts
 
+    if !impl(ghcjs >=0.1)
+        build-depends:
+            transformers -any,
+            transient >=0.4.4,
+            transient-universe -any
+        hs-source-dirs: app/server/Transient/Move/Services
+    else
+        hs-source-dirs: app/client/Transient/Move/Services
+    main-is: MonitorService.hs
+    build-depends:
+        base >4 && <5
+    default-language: Haskell2010
+    ghc-options: -threaded -rtsopts
 
 test-suite test-transient
-    build-depends: base > 4
+
     if !impl(ghcjs >=0.1)
-      build-depends: HTTP             -any,
-                     TCache           -any,
-                     bytestring       -any,
-                     case-insensitive -any,
-                     containers       -any,
-                     directory        -any,
-                     filepath         -any,
-                     hashable         -any,
-                     mtl              -any,
-                     network          -any,
-                     network          -any,
-                     network-info     -any,
-                     network-uri      -any,
-                     process          -any,
-                     random           -any,
-                     stm              -any,
-                     text             -any,
-                     time             -any,
-                     transformers     -any,
-                     transient        >=0.4.4.1,
-                     vector           -any,
-                     websockets       -any
-
-
+        build-depends:
+            mtl -any,
+            transient -any,
+            random -any,
+            text -any,
+            containers -any,
+            directory -any,
+            filepath -any,
+            stm -any,
+            HTTP -any,
+            network -any,
+            transformers -any,
+            process -any,
+            network -any,
+            network-info -any,
+            bytestring -any,
+            time -any,
+            vector -any,
+            TCache >= 0.12,
+            websockets -any,
+            network-uri -any,
+            case-insensitive -any,
+            hashable -any
     type: exitcode-stdio-1.0
     main-is: TestSuite.hs
-    buildable: True
+    build-depends:
+        base >4
     default-language: Haskell2010
     hs-source-dirs: tests src .

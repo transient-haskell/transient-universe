@@ -62,4 +62,3 @@ main = keep . runCloud $ do
              case mnode of
                 Nothing  -> request ns
                 justnode -> return justnode
-
