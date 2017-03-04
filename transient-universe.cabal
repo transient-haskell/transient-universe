@@ -1,5 +1,5 @@
 name: transient-universe
-version: 0.4.0
+version: 0.4.1
 cabal-version: >=1.10
 build-type: Simple
 license: MIT
@@ -34,7 +34,7 @@ library
     else
         build-depends:
             HTTP -any,
-            TCache -any,
+            TCache >= 0.12,
             case-insensitive -any,
             directory -any,
             filepath -any,
