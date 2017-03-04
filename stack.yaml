@@ -1,14 +1,9 @@
-resolver: lts-7.7
+resolver: lts-6.6
 packages:
 - '.'
 - location:
-<<<<<<< HEAD
-    git: https://github.com/transient-haskell/transient.git
-    commit: 1864f1f4e3a3ba472f471b3e4743d19d7362bebc
-=======
     git: https://github.com/agocorona/transient.git
     commit: d3a96df9ecaf0f09f756fb0fc28901e74c894360
->>>>>>> testsuite
   extra-dep: true
 extra-package-dbs: []
 flags: {}
