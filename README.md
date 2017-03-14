@@ -4,7 +4,7 @@
 [![Hackage](https://img.shields.io/hackage/v/transient-universe.svg)](http://hackage.haskell.org/package/transient-universe)
 [![Stackage LTS](http://stackage.org/package/transient-universe/badge/lts)](http://stackage.org/lts/package/transient-universe)
 [![Stackage Nightly](http://stackage.org/package/transient-universe/badge/nightly)](http://stackage.org/nightly/package/transient-universe)
-[![Build Status](https://travis-ci.org/transient-haskell/transient-universe.png?branch=master)](https://travis-ci.org/agocorona/transient-universe)
+[![Build Status](https://travis-ci.org/transient-haskell/transient-universe.png?branch=master)](https://travis-ci.org/transient-haskell/transient-universe)
 [![Gitter](https://badges.gitter.im/theam/haskell-do.svg)](https://gitter.im/Transient-Transient-Universe-HPlay/Lobby?utm_source=share-link&utm_medium=link&utm_campaign=share-link)
 
 See the [Wiki](https://github.com/agocorona/transient/wiki)
