@@ -11,7 +11,7 @@
 -- |
 --
 -----------------------------------------------------------------------------
-
+{-# LANGUAGE ScopedTypeVariables #-}
 module Transient.Move.Services  where
 
 import Transient.Base
@@ -35,7 +35,7 @@ import Data.List
 import Data.Maybe
 import Data.Monoid
 import Control.Concurrent(threadDelay)
-import Control.Exception
+import Control.Exception hiding(onException)
 import Data.IORef
 
 monitorService= ("https://github.com/agocorona/transient-universe","monitor")
@@ -193,12 +193,9 @@ monitorNode= unsafePerformIO $ createNodeServ "localhost"
 
 callService' ident node params = do
 
-    onAll $ onFinish (\me -> do
-                case fmap fromException me  :: Maybe(Maybe IOException) of
-                  Nothing -> return ()
-                  Just (Just e') -> do
-                      noFinish
-                      liftIO startMonitor)
+    onAll $ onException $ \(e:: IOException) -> do
+                                  liftIO startMonitor
+                                  continue
     log <- onAll $ do
              log  <- getSData <|> return emptyLog
              setData emptyLog
@@ -262,7 +259,8 @@ runService servname serv =  do
 
       local $ do
          conn <- defConnection
-         setData  conn{myNode = mynode}
+         liftIO $ writeIORef (myNode conn) mynode
+         setState conn
       onAll inputAuthorizations <|> (inputNodes >> empty) <|> return ()
       listen mynode
       where
