@@ -23,6 +23,7 @@ import Control.Applicative
 import Control.Monad.IO.Class
 import Data.IORef
 
+
 -- | ask in the console for the port number and initializes a node in the port specified
 -- It needs the application to be initialized with `keep` to get input from the user.
 -- the port can be entered in the command line with "<program> -p  start/<PORT>"
@@ -66,8 +67,10 @@ initNode app= do
 -- | ask for nodes to be added to the list of known nodes. it also ask to connect to the node to get
 -- his list of known nodes. It returns empty
 inputNodes :: Cloud empty
-inputNodes= onServer $ do
-          local $ option "add"  "add a new node at any moment"
+inputNodes= onServer $ listNodes <|> addNew
+  where
+  addNew= do
+          local $ option "add"  "add a new node"
 
           host <- local $ do
                     r <- input (const True) "Host to connect to: (none): "
@@ -83,6 +86,10 @@ inputNodes= onServer $ do
                                addNodes [nnode]
           empty
 
+  listNodes=  do
+          local $ option "list" "list nodes"
+          local $ getNodes >>= liftIO . print
+          empty
 
 -- | executes the application in the server and the Web browser.
 -- the browser must point to http://hostname:port where port is the first parameter.
@@ -111,7 +118,8 @@ simpleWebApp port app = do
 initWebApp :: Node -> Cloud () -> TransIO ()
 initWebApp node app=  do
     conn <- defConnection
-    setData conn{myNode = node}
+    liftIO $ writeIORef (myNode conn)  node
+    addNodes  [node]
     serverNode <- getWebServerNode  :: TransIO Node
 
     mynode <- if isBrowserInstance
@@ -120,6 +128,7 @@ initWebApp node app=  do
     runCloud $ do
         listen mynode <|> return()
         wormhole serverNode app
+
         return ()
 
 -- only execute if the the program is executing in the browser. The code inside can contain calls to the server.
