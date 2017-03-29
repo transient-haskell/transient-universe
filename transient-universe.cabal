@@ -1,5 +1,5 @@
 name: transient-universe
-version: 0.4.1
+version: 0.4.2
 cabal-version: >=1.10
 build-type: Simple
 license: MIT
