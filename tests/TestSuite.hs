@@ -1,6 +1,3 @@
-#!/usr/bin/env ./execcluster.sh
-
-
 {-# LANGUAGE CPP #-}
 module Main where
 
