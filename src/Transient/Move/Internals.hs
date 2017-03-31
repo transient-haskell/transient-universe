@@ -351,7 +351,7 @@ wormhole node (Cloud comp) = local $ Transient $ do
             then runTrans $ (do
 
                     conn <-  mconnect node
-
+                    liftIO $ writeIORef (remoteNode conn) $ Just node
                     setData  conn{calling= True}
 
                     comp )
@@ -417,14 +417,18 @@ teleport =  do
      if not rec   -- !> ("teleport rec,loc fulLog=",rec,log,fulLog)
                   -- if is not recovering in the remote node then it is active
       then  do
-        conn@Connection{remoteNode=remoteNode,connData=contype,closures= closures,calling= calling} <- getData
+        conn@Connection{connData=contype,closures= closures,calling= calling} <- getData
              `onNothing` error "teleport: No connection defined: use wormhole"
 #ifndef ghcjs_HOST_OS
         case contype of
-         Just Self -> do
-
+         Just Self ->  runTrans $ do
                setData $ if (not calling) then  WasRemote else WasParallel
-               runTrans $ async $ return ()  -- !> "SELF" -- call himself
+               abduce  -- !> "SELF" -- call himself
+               liftIO $ do
+                  remote <- readIORef $ remoteNode conn
+                  writeIORef (myNode conn) $ fromMaybe (error "teleport: no connection?") remote
+
+
          _ -> do
 #else
         do
@@ -598,7 +602,7 @@ sendRaw (Connection _ _ (Just (Web2Node sconn)) _ _ blocked _  _ _) r= liftIO $
 sendRaw _ _= error "No connection stablished"
 
 
-data NodeMSG= ClosureData IdClosure IdClosure CurrentPointer  -- | RelayMSG  Node NodeMSG
+data NodeMSG= ClosureData IdClosure IdClosure CurrentPointer
    deriving (Typeable, Read, Show)
 
 msend :: MonadIO m => Connection -> StreamData NodeMSG -> m ()
@@ -1844,7 +1848,8 @@ connect'  remotenode= do
 
 
            mclustered . local $ do
-                liftIO $ putStrLn  "New nodes: " >> print newNodes
+                liftIO $ putStrLn  "New nodes1111: " >> print newNodes
+
                 addNodes newNodes
 
            localIO $ atomically $ do
