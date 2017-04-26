@@ -1,4 +1,4 @@
-![Transient logo](https://raw.githubusercontent.com/transient-haskell/transient/master/logo.png)
+![Universe logo](universe.png)
 =========
 
 [![Hackage](https://img.shields.io/hackage/v/transient-universe.svg)](http://hackage.haskell.org/package/transient-universe)
@@ -24,13 +24,13 @@ Distributed Browser/server Widgets
 -------
 Browser nodes can integrate Hplayground for ghcjs, a reactive client side library based in trasient (package ghcjs-hplay) they can create widgets with HTML form elements and control the server nodes. A computation can move from browser to server and back at runtime despite the different architecture.
 
-Widgets with code running in browser and servers can compose with other widgets. A Browser node can gain access to many server nodes trough the  server that delivered the web application. 
+Widgets with code running in browser and servers can compose with other widgets. A Browser node can gain access to many server nodes trough the  server that delivered the web application.
 
 These features can make transient ideal for client as well as server side-driven applications, whenever distribution and push-driven reactivity is necessary either in the servers or in the browser clients.
 
 New
 ===
-The last release add 
+The last release add
 
   - Hooks for secure communications: with [transient-universe-tls package](https://github.com/transient-haskell/transient-universe-tls), a node can use TLS to connect with other nodes, including web nodes. If the connection of a web node is initiated with "https" the websocket connection uses secure communications (wss). The only primitive added is `initTLS`.
   - Client websocket connections to connect with nodes within firewalled servers: a server node can connect with another situated after a HTTP server. All the process is transparent and add no new primitive; First `connect` tries a TCP socket connection if it receives other message than "OK", it tries a connection as a websocket client. This is important for P2P connections where a central server acts as coordinator. websocket connections can use TLS communications too.
@@ -98,8 +98,3 @@ The only way to improve it is using it. Please send me bugs and additional funct
 -I plan to improve map-reduce to create a viable platform for serious data analysis and machine learning using haskell. It will have a  web notebook running in the browser.
 
 -Create services and examples for general Web applications with distributed servers and create services for them
-
-
-
-
-
