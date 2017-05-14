@@ -123,8 +123,9 @@ instance Ord Node where
 newtype Cloud a= Cloud {runCloud' ::TransIO a} deriving (Functor,Applicative,Monoid,Alternative, Monad, Num, MonadState EventF)
 
 
--- | Execute a distributed computation inside a TransIO computation.
--- All the  computations in the TransIO monad that enclose the cloud computation must be `logged`
+-- | Execute a distributed computation in the 'TransIO' monad.
+-- Note that all the computations inside the 'TransIO' monad that enclose the
+-- cloud computation must be `logged`.
 runCloud x= do
        closRemote  <- getSData <|> return (Closure 0)
        runCloud' x <*** setData  closRemote
@@ -178,11 +179,12 @@ local =  Cloud . logged
 --stream= Cloud . transport
 
 -- #ifndef ghcjs_HOST_OS
--- | run the cloud computation.
+-- | Run a distributed computation inside the IO monad. Enables asynchronous
+-- console input (see 'keep').
 runCloudIO :: Typeable a =>  Cloud a -> IO (Maybe a)
 runCloudIO (Cloud mx)= keep mx
 
--- | run the cloud computation with no console input
+-- | Run a distributed computation inside the IO monad with no console input.
 runCloudIO' :: Typeable a =>  Cloud a -> IO (Maybe a)
 runCloudIO' (Cloud mx)=  keep' mx
 
