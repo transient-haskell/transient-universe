@@ -1067,6 +1067,8 @@ getBuffSize=
 
 
 
+-- | Setup the node to start listening for incoming connections.
+--
 listen ::  Node ->  Cloud ()
 listen  (node@(Node _   port _ _ )) = onAll $ do
    addThreads 1
@@ -1644,7 +1646,7 @@ giveData =noTrans $ do
 isBrowserInstance= True
 api _= empty
 #else
--- | True if it is running in the browser
+-- | Returns 'True' if we are running in the browser.
 isBrowserInstance= False
 
 #endif
@@ -1658,6 +1660,8 @@ emptyPool :: MonadIO m => m (MVar Pool)
 emptyPool= liftIO $ newMVar  []
 
 
+-- | Create a node from a hostname (or IP address), port number and a list of
+-- services.
 createNodeServ ::  HostName -> Integer -> [Service] -> IO Node
 createNodeServ h p svs= do
     pool <- emptyPool
@@ -1666,6 +1670,8 @@ createNodeServ h p svs= do
 
 
 
+-- | Create a node from a hostname (or IP address) and port number. The node is
+-- created without any services.
 createNode :: HostName -> Integer -> IO Node
 createNode h p= createNodeServ h p []
 
@@ -1711,6 +1717,7 @@ deriving instance Ord PortID
 errorMyNode f= error $ f ++ ": Node not set. initialize it with connect, listen, initNode..."
 
 
+-- | Return the local node i.e. the node where this computation is running.
 getMyNode :: TransIO Node -- (MonadIO m, MonadState EventF m) => m Node
 getMyNode =  do
     Connection{myNode= node}  <- getSData   <|> errorMyNode "getMyNode" :: TransIO Connection
@@ -1718,7 +1725,7 @@ getMyNode =  do
 
 
 
--- | return the list of nodes connected to the local node
+-- | Return the list of nodes in the cluster.
 getNodes :: MonadIO m => m [Node]
 getNodes  = liftIO $ atomically $ readTVar  nodeList
 
@@ -1731,7 +1738,7 @@ getServerNodes= do
          | ("webnode","") `elem` srvs = True
          | otherwise = False
 
--- | add nodes to the list of nodes
+-- | Add a list of nodes to the list of existing cluster nodes.
 addNodes :: [Node] ->  TransIO () -- (MonadIO m, MonadState EventF m) => [Node] -> m ()
 addNodes   nodes=  do
 --  my <- getMyNode    -- mynode must be first
@@ -1744,6 +1751,7 @@ addNodes   nodes=  do
 setNodes nodes= liftIO $ atomically $ writeTVar nodeList $  nodes
 
 
+-- | Shuffle the list of cluster nodes and return the shuffled list.
 shuffleNodes :: MonadIO m => m [Node]
 shuffleNodes=  liftIO . atomically $ do
   nodes <- readTVar nodeList
@@ -1786,8 +1794,10 @@ shuffleNodes=  liftIO . atomically $ do
 
 
 
--- | set the rest of the computation as the code of a new node (first parameter) and connect it
--- to an existing node (second parameter). then it uses `connect`` to synchronize the list of nodes
+-- | Add a node (first parameter) to the cluster using a node that is already
+-- part of the cluster (second parameter).  The added node starts listening for
+-- incoming connections and the rest of the computation is executed on this
+-- newly added node.
 connect ::  Node ->  Node -> Cloud ()
 #ifndef ghcjs_HOST_OS
 connect  node  remotenode =   do
@@ -1796,8 +1806,9 @@ connect  node  remotenode =   do
 
 
 
--- | synchronize the list of nodes with a remote node and all the nodes connected to it
--- the final effect is that all the nodes reachable share the same list of nodes
+-- | Reconcile the list of nodes in the cluster using a remote node already
+-- part of the cluster. Reconciliation results in each node in the cluster
+-- having exactly the same list of nodes.
 connect' :: Node -> Cloud ()
 connect'  remotenode= do
     nodes <- local getServerNodes
