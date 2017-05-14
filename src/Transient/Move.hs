@@ -16,7 +16,7 @@
 -- node.  @transient-universe@ has diverse applications from simple distributed
 -- applications to massively parallel and distributed map-reduce problems.  If
 -- you are considering Apache Spark or Cloud Haskell then transient might be a
--- simpler yet better solution for you
+-- simpler yet better solution for you.
 --
 -- Transient makes it easy to write composable, distributed event driven
 -- reactive UI applications with client side and server side code composed
@@ -46,29 +46,36 @@
 
 module Transient.Move(
 
--- * running the Cloud monad
-Cloud(..),runCloud, runCloudIO, runCloudIO', local, onAll, lazy, loggedc, lliftIO,localIO,
-listen, Transient.Move.Internals.connect, connect', fullStop,
+-- * Running the Monad
+Cloud(..),runCloud, runCloudIO, runCloudIO',
 
--- * primitives for communication
+-- * Node Management
+createNode, createWebNode, createNodeServ, getMyNode, getNodes,
+addNodes, shuffleNodes,
+
+-- * Connecting
+listen, Transient.Move.Internals.connect, connect',
+
+-- * Running Local Computations
+local, onAll, lazy, loggedc, lliftIO, localIO, fullStop,
+
+-- * Moving Computations
 wormhole, teleport, copyData,
 
-
-
--- * single node invocation
+-- * Running at a Remote Node
 beamTo, forkTo, callTo, runAt, atRemote,
 
--- * invocation of many nodes
+-- * Running at Multiple Nodes
 clustered, mclustered, callNodes,
 
--- * messaging
+-- * Messaging
 putMailbox, putMailbox',getMailbox,getMailbox',cleanMailbox,cleanMailbox',
 
--- * thread control
+-- * Thread Control
 single, unique,
 
 #ifndef ghcjs_HOST_OS
--- * buffering control
+-- * Buffering Control
 setBuffSize, getBuffSize,
 #endif
 
@@ -76,11 +83,8 @@ setBuffSize, getBuffSize,
 -- * REST API
 api, HTTPMethod(..), PostParams,
 #endif
--- * node management
-createNode, createWebNode, createNodeServ, getMyNode, getNodes,
-addNodes, shuffleNodes,
 
--- * low level
+-- * Low Level APIs
 
  getWebServerNode, Node(..), nodeList, Connection(..), Service(),
  isBrowserInstance,
