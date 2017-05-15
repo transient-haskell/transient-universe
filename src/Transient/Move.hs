@@ -49,12 +49,21 @@ module Transient.Move(
 -- * Running the Monad
 Cloud(..),runCloud, runCloudIO, runCloudIO',
 
--- * Node Management
-createNode, createWebNode, createNodeServ, getMyNode, getNodes,
-addNodes, shuffleNodes,
+-- * Node & Cluster Management
+-- $cluster
+Node(..),
+-- ** Creating nodes
+Service(), createNodeServ, createNode, createWebNode,
 
--- * Connecting
-listen, Transient.Move.Internals.connect, connect',
+-- ** Joining the cluster
+Transient.Move.Internals.connect, connect', listen,
+-- Low level APIs
+addNodes, shuffleNodes,
+Connection(..), ConnectionData(..), defConnection,
+
+-- ** Querying nodes
+getMyNode, getWebServerNode, getNodes, nodeList, isBrowserInstance,
+
 
 -- * Running Local Computations
 local, onAll, lazy, loggedc, lliftIO, localIO, fullStop,
@@ -86,11 +95,6 @@ api, HTTPMethod(..), PostParams,
 
 -- * Low Level APIs
 
- getWebServerNode, Node(..), nodeList, Connection(..), Service(),
- isBrowserInstance,
-
- defConnection,
- ConnectionData(..),
 #ifndef ghcjs_HOST_OS
  ParseContext(..)
 #endif
@@ -99,8 +103,18 @@ api, HTTPMethod(..), PostParams,
 
 import Transient.Move.Internals
 
-
-
-
-
-
+-- $cluster
+--
+-- To join the cluster a node 'connect's to a well known node already part of
+-- the cluster.
+--
+-- @
+-- import Transient.Move (runCloudIO, lliftIO, createNode, connect, getNodes, onAll)
+--
+-- main = runCloudIO $ do
+--     this   <- lliftIO (createNode "192.168.1.2" 8000)
+--     master <- lliftIO (createNode "192.168.1.1" 8000)
+--     connect this master
+--     onAll getNodes >>= lliftIO . putStrLn . show
+-- @
+--
