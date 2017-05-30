@@ -310,7 +310,7 @@ single f= do
 
 
    case  M.lookup id mapth of
-          Just tv -> killBranch'  tv      -- !> "JUSTTTTTTTTT"
+          Just tv -> liftIO $ killBranch'  tv      -- !> "JUSTTTTTTTTT"
           Nothing ->  return ()           -- !> "NOTHING"
 
 
@@ -345,7 +345,7 @@ wormhole node (Cloud comp) = local $ Transient $ do
 
    moldconn <- getData :: StateIO (Maybe Connection)
    mclosure <- getData :: StateIO (Maybe Closure)
-   labelState $ "wormhole" ++ show node
+   -- labelState $ "wormhole" ++ show node
    logdata@(Log rec log fulLog) <- getData `onNothing` return (Log False [][])
 
 
@@ -413,7 +413,7 @@ teleport =  do
   local $ Transient $ do
 
      cont <- get
-     labelState "teleport"
+     -- labelState "teleport"
      -- send log with closure at head
      Log rec log fulLog <- getData `onNothing` return (Log False [][])
      if not rec   -- !> ("teleport rec,loc fulLog=",rec,log,fulLog)
