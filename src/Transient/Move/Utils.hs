@@ -12,17 +12,20 @@
 --
 -----------------------------------------------------------------------------
 
-module Transient.Move.Utils (initNode,inputNodes, simpleWebApp, initWebApp
+module Transient.Move.Utils (initNode,initNodeDef, initNodeServ, inputNodes, simpleWebApp, initWebApp
 , onServer, onBrowser, runTestNodes)
  where
 
 --import Transient.Base
 import Transient.Internals
-import Transient.Move
+import Transient.Move.Internals
 import Control.Applicative
 import Control.Monad.IO.Class
 import Data.IORef
+import System.Environment
 
+import Control.Concurrent.MVar
+import Data.Maybe
 
 -- | ask in the console for the port number and initializes a node in the port specified
 -- It needs the application to be initialized with `keep` to get input from the user.
@@ -49,20 +52,38 @@ import Data.IORef
 --
 -- To translate the code from the browser to the server node, use `teleport`.
 --
-initNode :: Cloud () -> TransIO ()
+initNode :: Loggable a => Cloud a -> TransIO a
 initNode app= do
    node <- getNodeParams
    initWebApp node  app
 
 
-  where
-  getNodeParams  :: TransIO Node
-  getNodeParams  =
+getNodeParams  :: TransIO Node
+getNodeParams  =
       if isBrowserInstance then  liftIO createWebNode else do
           oneThread $ option "start" "re/start node"
           host <- input (const True) "hostname of this node (must be reachable): "
           port <- input (const True) "port to listen? "
           liftIO $ createNode host port
+
+initNodeDef :: Loggable a => String -> Int -> Cloud a -> TransIO a
+initNodeDef host port app= do
+   node <- def <|> getNodeParams
+   initWebApp node   app
+   where
+   def= do
+        args <- liftIO  getArgs
+        if null args then liftIO $ createNode host port else empty
+
+initNodeServ :: Loggable a => Service -> String -> Int -> Cloud a -> TransIO a
+initNodeServ services host port app= do
+   node <- def <|> getNodeParams
+   let node'= node{nodeServices=services}
+   initWebApp node' $  app
+   where
+   def= do
+        args <- liftIO  getArgs
+        if null args then liftIO $ createNode host port else empty
 
 -- | ask for nodes to be added to the list of known nodes. it also ask to connect to the node to get
 -- his list of known nodes. It returns empty
@@ -70,16 +91,19 @@ inputNodes :: Cloud empty
 inputNodes= onServer $ listNodes <|> addNew
   where
   addNew= do
+          
           local $ option "add"  "add a new node"
 
           host <- local $ do
-                    r <- input (const True) "Host to connect to: (none): "
+                    r <- input (const True) "Hostname of the node (none): "
                     if r ==  "" then stop else return r
 
           port <-  local $ input (const True) "port? "
 
+          services <- local $ input' (Just []) (const True) "services? [] "
+
           connectit <- local $ input (\x -> x=="y" || x== "n") "connect to the node to interchange node lists? "
-          nnode <- localIO $ createNode host port
+          nnode <- localIO $ createNodeServ host port  services
           if connectit== "y" then connect'  nnode
                              else  local $ do
                                liftIO $ putStr "Added node: ">> print nnode
@@ -107,15 +131,15 @@ inputNodes= onServer $ listNodes <|> addNew
 -- > ./program
 --
 --
-simpleWebApp :: Integer -> Cloud () -> IO ()
+simpleWebApp :: Loggable a => Integer -> Cloud a -> IO ()
 simpleWebApp port app = do
-   node <- createNode "localhost" port
+   node <- createNode "localhost" $ fromIntegral port
    keep $ initWebApp node app
    return ()
 
 -- | use this instead of smpleWebApp when you have to do some initializations in the server prior to the
 -- initialization of the web server
-initWebApp :: Node -> Cloud () -> TransIO ()
+initWebApp :: Loggable a => Node -> Cloud a -> TransIO a
 initWebApp node app=  do
     conn <- defConnection
     liftIO $ writeIORef (myNode conn)  node
@@ -127,12 +151,10 @@ initWebApp node app=  do
                     else return serverNode
     runCloud $ do
         listen mynode <|> return()
-        wormhole serverNode app
-
-        return ()
+        wormhole serverNode  app  
 
 -- only execute if the the program is executing in the browser. The code inside can contain calls to the server.
--- Otherwise return empty (so it stop the computation).
+-- Otherwise return empty (so it stop the computation and may execute alternative computations).
 onBrowser :: Cloud a -> Cloud a
 onBrowser x= do
      r <- local $  return isBrowserInstance
