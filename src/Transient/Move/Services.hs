@@ -11,25 +11,26 @@
 -- |
 --
 -----------------------------------------------------------------------------
-{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE ScopedTypeVariables, CPP #-}
+
+#ifndef ghcjs_HOST_OS
+
 module Transient.Move.Services  where
 
-import Transient.Base
-import Transient.Move
-import Transient.Logged(Loggable(..))
-import Transient.Backtrack
-import Transient.Internals(RemoteStatus(..), Log(..))
+import Transient.Internals
+import Transient.Move.Internals
+import Transient.Logged
+-- import Transient.Backtrack
+-- import Transient.Internals(RemoteStatus(..), Log(..))
 import Transient.Move.Utils
 
-import Transient.EVars
+-- import Transient.EVars
 import Transient.Indeterminism
 import Control.Monad.IO.Class
-import System.Process
 import System.IO.Unsafe
 import Control.Concurrent.MVar
 import Control.Applicative
-
-import System.Directory
+import System.Process
 import Control.Monad
 import Data.List
 import Data.Maybe
@@ -38,84 +39,48 @@ import Control.Concurrent(threadDelay)
 import Control.Exception hiding(onException)
 import Data.IORef
 
-monitorService= ("https://github.com/agocorona/transient-universe","monitor")
+monitorService= [("service","monitor")
+                ,("executable", "monitorService")
+                ,("package","https://github.com/transient-haskell/transient-universe")]
 
-
-install :: String  -> String -> String -> Int -> IO ()
-install package program host port =  do
-     exist <-  findExecutable program -- liftIO $ doesDirectoryExist  packagename
-     when (isNothing exist) $ do
-         let packagename = name package
-         when (null packagename) $ error $ "source for \""++package ++ "\" not found"
-         callProcess  "git" ["clone",package]
-         liftIO $ putStr package >> putStrLn " cloned"
-         setCurrentDirectory packagename
-         callProcess  "cabal" ["install","--force-reinstalls"]
-         setCurrentDirectory ".."
-         return()
-     let prog = pathExe  program host port
-     print $ "executing "++ prog
-     let createprostruct= shell prog
-     createProcess $ createprostruct ; return ()
-
-     threadDelay 2000000
-
-     return()                           --  !> ("INSTALLED", program)
-     where
-     pathExe  program host port=  program  ++ " -p start/" ++ show host ++"/" ++ show port
-
-
-name url=  slash . slash . slash $ slash url
-  where
-  slash= tail1 . dropWhile (/='/')
-  tail1 []=[]
-  tail1 x= tail x
 
 monitorPort= 3000
-rfreePort :: MVar Int
-rfreePort = unsafePerformIO $ newMVar  (monitorPort +1)
 
-freePort :: MonadIO m => m Int
-freePort= liftIO $ modifyMVar rfreePort $ \ n -> return (n+1,n)
-
-initService ident service@(package, program)=
-    (local $ findInNodes service >>= return . head) <|> requestInstall service
+initService :: String -> Service -> Cloud Node
+initService ident service=
+    cached <|> installIt
     where
-    requestInstall service =  do
-       mnode <- callService' ident monitorNode (ident,service)
-       case mnode of
-         Nothing -> empty
-         Just node -> do
-               local $ addNodes [node]      -- !> ("ADDNODES",service)
-               return node
+    cached= local $ do
+        ns <- findInNodes service 
+        if null ns then  empty
+        else return $ head ns
+    installIt= do
+        ns <- requestInstance ident service 1 
+        if null ns then empty else return $ head ns
 
-startMonitor=  do
-        createProcess . shell $ "monitorService -p start/"++ show monitorPort
+requestInstance :: String -> Service -> Int -> Cloud [Node]
+requestInstance ident service num=  loggedc $ do
+       return () !> "requestInstance"
+       local $ onException $ \(e:: ConnectionError) ->  startMonitor >> continue     !> ("Exception",e)
+
+       nodes <- callService' ident monitorNode (ident,service,num)
+       local $ addNodes nodes      -- !> ("ADDNODES",service)
+       return nodes
+
+startMonitor :: MonadIO m => m ()
+startMonitor=  liftIO $ do
+        createProcess . shell $ "monitorService -p start/localhost/"++ show monitorPort
         threadDelay 2000000
 
 
-nodeService (Node h _ _ _) port service=  do
-      pool <- newMVar []
-      return $ Node h port pool [service]
 
+findInNodes :: Service -> TransIO [Node]
 findInNodes service =  do
+    --   return () !> "FINDINNODES"
       nodes <-  getNodes
-      let ns = filter (\node  -> service `elem` nodeServices node) nodes
-      if null ns then empty
-                 else return ns
+      return $ filter (\node  -> head service == head  (nodeServices node)) nodes
+     
 
-
-
--- where
---
--- callNodes' op init proc= loggedc $ do
---    nodes <-  local getNodes
---    let nodes' = filter (not . isWebNode) nodes
---    foldr op init $ map (\node -> runAt node $ proc node) nodes'  :: Cloud [Node]
---    where
---    isWebNode Node {nodeServices=srvs}
---         | ("webnode","") `elem` srvs = True
---         | otherwise = False
 
 
 rfriends        =   unsafePerformIO $ newIORef ([] ::[String])
@@ -124,7 +89,7 @@ ridentsBanned   =   unsafePerformIO $ newIORef ([] ::[String])
 rServicesBanned =   unsafePerformIO $ newIORef ([] ::[Service])
 
 inputAuthorizations= do
-    oneThread $ option "authorizations" "authorizations"
+    oneThread $ option "auth" "add authorizations for users and services"
     showPerm <|> friends <|> services <|> identBanned <|> servicesBanned
     empty
 
@@ -162,6 +127,12 @@ inputAuthorizations= do
      liftIO $ putStr "services allowed: " >> print services
      liftIO $ putStr "services banned:  " >> print servicesBanned
 
+rfreePort :: MVar Int
+rfreePort = unsafePerformIO $ newMVar  (monitorPort +1)
+
+freePort :: MonadIO m => m Int
+freePort= liftIO $ modifyMVar rfreePort $ \ n -> return (n+1,n)
+
 
 authorizeService :: MonadIO m => String -> Service -> m Bool
 authorizeService ident service=   do
@@ -184,18 +155,14 @@ callService
     :: (Loggable a, Loggable b)
     => String -> Service -> a  -> Cloud b
 callService ident service params = do
-    node <-  initService ident service     --  !> ("callservice initservice", service)
-    callService' ident node params         -- !>  ("NODE FOR SERVICE",node)
+    node <-  initService ident service       -- !> ("callservice initservice", service)
+    callService' ident node params           -- !>  ("NODE FOR SERVICE",node)
 
 monitorNode= unsafePerformIO $ createNodeServ "localhost"
             (fromIntegral monitorPort)
-            [monitorService]
+            monitorService
 
 callService' ident node params = do
-
-    onAll $ onException $ \(e:: IOException) -> do
-                                  liftIO startMonitor
-                                  continue
     log <- onAll $ do
              log  <- getSData <|> return emptyLog
              setData emptyLog
@@ -204,12 +171,15 @@ callService' ident node params = do
     r <- wormhole node $  do
              local $ return params
              teleport
+          --   local empty  `asTypeOf` typea params
              local empty
 
-    restoreLog log                         -- !> "RESTORELOG"
+    restoreLog log                        --  !> "RESTORELOG"
 
     return  r
     where
+    typea :: a -> Cloud a
+    typea = undefined
     restoreLog (Log _ _ logw)= onAll $ do
        Log _ _ logw' <- getSData <|> return emptyLog
 
@@ -219,42 +189,45 @@ callService' ident node params = do
 
     emptyLog= Log False [] []
 
-
+catchc :: Exception e => Cloud a -> (e -> Cloud a) -> Cloud a
+catchc a b= Cloud $ catcht (runCloud' a) (\e -> runCloud' $ b e)
 
 runEmbeddedService :: (Loggable a, Loggable b) =>  Service -> (a -> Cloud b) -> Cloud b
 runEmbeddedService servname serv =  do
    node <- localIO $ do
           port <- freePort
-          createNodeServ "localhost" (fromIntegral port) [servname]
+          createNodeServ "localhost" (fromIntegral port) servname
    listen node
-   wormhole notused $ loggedc $ do
-      x <- local $ return notused
+   wormhole (notused 4) $ loggedc $ do
+      x <- local $ return (notused 0)
       r <- onAll $ runCloud (serv x) <** setData WasRemote
       local $ return r
       teleport
       return r
 
-  where
+  
 
-  notused= error "runEmbeddedService: variable should not be used"
+notused n= error $  "runService: "++ show (n::Int) ++ " variable should not be used"
 
-runService :: (Loggable a, Loggable b) =>  Service -> (a -> Cloud b) -> Cloud b
-runService servname serv =  do
-   initNodeServ [servname]
-   service
---   onAll inputAuthorizations   -- <|> inputNodes
+runService :: (Loggable a, Loggable b) =>  Service -> Int -> (a -> Cloud b) -> Cloud b
+runService servname defPort serv =  do
+   onAll $ onException $ \(e :: SomeException)->  liftIO $ print e 
+   initNodeServ servname
+   service 
    where
    service=
        wormhole (notused 1) $  do
-          x <- local $ return $ notused 2
+          x <- local . return $ notused 2
+         -- setData emptyLog
+          r <- local $ runCloud  (serv x) -- <** setData WasRemote
           setData emptyLog
-          r <- local $ runCloud (serv x) <** setData WasRemote
+          local $ return r
           teleport
           return r
 
    emptyLog= Log False [] []
-   notused n= error $  "runService: "++ show (n::Int) ++ " variable should not be used"
-   initNodeServ servs=do
+
+   initNodeServ  servs=do
       mynode <- local  getNode
 
       local $ do
@@ -262,13 +235,14 @@ runService servname serv =  do
          liftIO $ writeIORef (myNode conn) mynode
          setState conn
       onAll inputAuthorizations <|> (inputNodes >> empty) <|> return ()
-      listen mynode
+      listen mynode  
+
       where
       getNode :: TransIO Node
       getNode =  if isBrowserInstance then liftIO createWebNode else do
           oneThread $ option "start" "re/start node"
-          host <- input (const True) "hostname of this node (must be reachable): "
-          port <- input (const True) "port to listen? "
+          host <- input (const True) "hostname of this node (must be reachable) (\"localhost\"): "
+          port <- input (const True)  "port to listen? (3000) "
           liftIO $ createNodeServ host port servs
 
       inputNodes= do
@@ -281,25 +255,12 @@ runService servname serv =  do
 
                   port <-  local $ input (const True) "port? "
 
-                  nnode <- localIO $ createNodeServ host port [monitorService]
+                  nnode <- localIO $ createNodeServ host port monitorService
                   local $ do
-                                       liftIO $ putStr "Added node: ">> print nnode
-                                       addNodes [nnode]
+                       liftIO $ putStr "Added node: ">> print nnode
+                       addNodes [nnode]
            empty
-
-{- |
-a service called monitor:
-  runService
-  receive request for a service.
-  check service in list
-  if executing return node
-  when not installed install
-  execute
-  return node
--}
-
-
-
-
-
-
+#else
+requestInstance :: String -> Service -> Int -> Cloud [Node]
+requestInstance ident service num= logged empty
+#endif
