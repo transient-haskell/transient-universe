@@ -2,41 +2,89 @@
 --
 -- Module      :  Transient.Move
 -- Copyright   :
--- License     :  GPL-3
+-- License     :  MIT
 --
 -- Maintainer  :  agocorona@gmail.com
 -- Stability   :
 -- Portability :
 --
--- | see <https://www.fpcomplete.com/user/agocorona/moving-haskell-processes-between-nodes-transient-effects-iv>
+-- | @transient-universe@ extends the seamless composability of concurrent
+-- multi-threaded programs provided by
+-- <https://github.com/transient-haskell/transient transient>
+-- to a multi-node cloud.  Distributed concurrent programs are created and
+-- composed seamlessly and effortlessly as if they were written for a single
+-- node.  @transient-universe@ has diverse applications from simple distributed
+-- applications to massively parallel and distributed map-reduce problems.  If
+-- you are considering Apache Spark or Cloud Haskell then transient might be a
+-- simpler yet better solution for you.
+--
+-- Transient makes it easy to write composable, distributed event driven
+-- reactive UI applications with client side and server side code composed
+-- freely in the same application. For example,
+-- <https://hackage.haskell.org/package/axiom Axiom> is a transient based
+-- unified client and server side web application framework that provides a
+-- better programming model and composability compared to frameworks like
+-- ReactJS.
+--
+-- = Overview
+--
+-- The 'Cloud' monad adds the following facilities to complement the 'TransIO'
+-- monad:
+--
+-- * Create a distributed compute cluster of nodes
+-- * Move computations across nodes at any point during computation
+-- * Run computations on multiple nodes in parallel
+--
+-- = Further Reading
+--
+-- * <https://github.com/transient-haskell/transient/wiki/Transient-tutorial Tutorial>
+-- * <https://github.com/transient-haskell/transient-examples Examples>
+-- * <https://www.fpcomplete.com/user/agocorona/moving-haskell-processes-between-nodes-transient-effects-iv Blog post>
+--
 -----------------------------------------------------------------------------
 {-# LANGUAGE CPP #-}
 
 module Transient.Move(
 
--- * running the Cloud monad
-Cloud(..),runCloud, runCloudIO, runCloudIO', local, onAll, lazy, loggedc, lliftIO,localIO,
-listen, Transient.Move.Internals.connect, connect', fullStop,
+-- * Running the Monad
+Cloud(..),runCloud, runCloudIO, runCloudIO',
 
--- * primitives for communication
+-- * Node & Cluster Management
+-- $cluster
+Node(..),
+-- ** Creating nodes
+Service(), createNodeServ, createNode, createWebNode,
+
+-- ** Joining the cluster
+Transient.Move.Internals.connect, connect', listen,
+-- Low level APIs
+addNodes, shuffleNodes,
+Connection(..), ConnectionData(..), defConnection,
+
+-- ** Querying nodes
+getMyNode, getWebServerNode, getNodes, nodeList, isBrowserInstance,
+
+
+-- * Running Local Computations
+local, onAll, lazy, loggedc, lliftIO, localIO, fullStop,
+
+-- * Moving Computations
 wormhole, teleport, copyData,
 
-
-
--- * single node invocation
+-- * Running at a Remote Node
 beamTo, forkTo, callTo, runAt, atRemote,
 
--- * invocation of many nodes
+-- * Running at Multiple Nodes
 clustered, mclustered, callNodes,
 
--- * messaging
+-- * Messaging
 putMailbox, putMailbox',getMailbox,getMailbox',cleanMailbox,cleanMailbox',
 
--- * thread control
+-- * Thread Control
 single, unique,
 
 #ifndef ghcjs_HOST_OS
--- * buffering control
+-- * Buffering Control
 setBuffSize, getBuffSize,
 #endif
 
@@ -44,17 +92,9 @@ setBuffSize, getBuffSize,
 -- * REST API
 api, HTTPMethod(..), PostParams,
 #endif
--- * node management
-createNode, createWebNode, createNodeServ, getMyNode, getNodes,
-addNodes, shuffleNodes,
 
--- * low level
+-- * Low Level APIs
 
- getWebServerNode, Node(..), nodeList, Connection(..), Service(),
- isBrowserInstance,
-
- defConnection,
- ConnectionData(..),
 #ifndef ghcjs_HOST_OS
  ParseContext(..)
 #endif
@@ -63,8 +103,18 @@ addNodes, shuffleNodes,
 
 import Transient.Move.Internals
 
-
-
-
-
-
+-- $cluster
+--
+-- To join the cluster a node 'connect's to a well known node already part of
+-- the cluster.
+--
+-- @
+-- import Transient.Move (runCloudIO, lliftIO, createNode, connect, getNodes, onAll)
+--
+-- main = runCloudIO $ do
+--     this   <- lliftIO (createNode "192.168.1.2" 8000)
+--     master <- lliftIO (createNode "192.168.1.1" 8000)
+--     connect this master
+--     onAll getNodes >>= lliftIO . putStrLn . show
+-- @
+--
