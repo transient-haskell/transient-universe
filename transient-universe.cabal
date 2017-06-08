@@ -1,5 +1,5 @@
 name: transient-universe
-version: 0.4.4.1
+version: 0.4.4
 cabal-version: >=1.10
 build-type: Simple
 license: MIT
@@ -7,7 +7,7 @@ license-file: LICENSE
 maintainer: agocorona@gmail.com
 homepage: http://www.fpcomplete.com/user/agocorona
 bug-reports: https://github.com/agocorona/transient-universe/issues
-synopsis: Distributed computing with algebraic/monadic composability, map-reduce
+synopsis: Remote execution and map-reduce: distributed computing for Transient
 description:
     See <http://github.com/agocorona/transient>.
 category: Control
@@ -44,7 +44,11 @@ library
             network-info -any,
             network-uri -any,
             vector -any,
-            websockets -any
+            websockets -any,
+            process -any,
+            random -any,
+            text -any
+
     exposed-modules:
         Transient.Move
         Transient.MapReduce
@@ -55,13 +59,10 @@ library
         bytestring -any,
         containers -any,
         mtl -any,
-        process -any,
-        random -any,
         stm -any,
-        text -any,
         time -any,
         transformers -any,
-        transient >= 0.5.4
+        transient >= 0.5.6
     default-language: Haskell2010
     hs-source-dirs: src .
 
@@ -70,23 +71,61 @@ executable monitorService
     if !impl(ghcjs >=0.1)
         build-depends:
             transformers -any,
-            transient >=0.5.4,
-            transient-universe -any
+            transient >=0.5.6,
+            transient-universe,
+            process,
+            directory
         hs-source-dirs: app/server/Transient/Move/Services
     else
         hs-source-dirs: app/client/Transient/Move/Services
     main-is: MonitorService.hs
     build-depends:
         base >4 && <5
+
+
     default-language: Haskell2010
     ghc-options: -threaded -rtsopts
+
+executable test-transient1
+
+    if !impl(ghcjs >=0.1)
+        build-depends:
+            mtl -any,
+            transient >= 0.5.6,
+            random -any,
+            text -any,
+            containers -any,
+            directory -any,
+            filepath -any,
+            stm -any,
+            HTTP -any,
+            network -any,
+            transformers -any,
+            process -any,
+            network -any,
+            network-info -any,
+            bytestring -any,
+            time -any,
+            vector -any,
+            TCache >= 0.12,
+            websockets -any,
+            network-uri -any,
+            case-insensitive -any,
+            hashable -any
+    main-is: TestSuite.hs
+    build-depends:
+        base >4
+    default-language: Haskell2010
+    hs-source-dirs: tests src .
+    ghc-options: -threaded -rtsopts
+
 
 test-suite test-transient
 
     if !impl(ghcjs >=0.1)
         build-depends:
             mtl -any,
-            transient -any,
+            transient >= 0.5.6,
             random -any,
             text -any,
             containers -any,
@@ -113,3 +152,4 @@ test-suite test-transient
         base >4
     default-language: Haskell2010
     hs-source-dirs: tests src .
+    ghc-options: -threaded -rtsopts

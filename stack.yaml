@@ -3,7 +3,8 @@ packages:
 - '.'
 - location:
     git:  https://github.com/agocorona/transient.git
-    commit: 44062d3c8b29c9d357e07f6f023c4345ba0d71b8
+    commit: 07869d4852f14fa36e626f6fa389eacdd5ac1b51
+
   extra-dep: true
 extra-package-dbs: []
 flags: {}

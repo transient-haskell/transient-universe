@@ -34,17 +34,14 @@ data PartRef a=PartRef a
 
 import Transient.Internals
 
-import Transient.Move hiding (pack)
-import Transient.Logged
+import Transient.Move.Internals hiding (pack)
 import Transient.Indeterminism
 import Control.Applicative
 import System.Random
 import Control.Monad.IO.Class
 
-import System.IO
 import Control.Monad
 import Data.Monoid
-import Data.Maybe
 
 import Data.Typeable
 import Data.List hiding (delete, foldl')
@@ -56,7 +53,6 @@ import Data.TCache hiding (onNothing)
 import Data.TCache.Defs
 
 import Data.ByteString.Lazy.Char8 (pack,unpack)
-import Control.Monad.STM
 import qualified Data.Map.Strict as M
 import Control.Arrow (second)
 import qualified Data.Vector.Unboxed as DVU
@@ -197,11 +193,11 @@ reduce ::  (Hashable k,Ord k, Distributable vector a, Loggable k,Loggable a)
 reduce red  (dds@(DDS mx))= loggedc $ do
 
    mboxid <- localIO $ atomicModifyIORef boxids $ \n -> let n'= n+1 in (n',n')
-   nodes <- local getNodes
+   nodes <- local getEqualNodes
 
    let lengthNodes = length nodes
        shuffler nodes = do
-
+          localIO $ threadDelay 100000
           ref@(Ref node path sav) <- mx     -- return the resulting blocks of the map
 
           runAt node $ foldAndSend node nodes ref
@@ -313,7 +309,7 @@ reduce red  (dds@(DDS mx))= loggedc $ do
 
 
 
---parallelize :: Loggable b => (a -> Cloud b) -> [a] -> Cloud b
+-- parallelize :: Loggable b => (a -> Cloud b) -> [a] -> Cloud b
 parallelize f xs =  foldr (<|>) empty $ map f xs
 
 mparallelize f xs =  loggedc $ foldr (<>) mempty $ map f xs
@@ -370,7 +366,7 @@ search uuid= error $ "chunk failover not yet defined. Lookin for: "++ uuid
 
 asyncDuplicate node uuid= do
     forkTo node
-    nodes <- onAll getNodes
+    nodes <- onAll getEqualNodes
     let node'= head $ nodes \\ [node]
     content <- onAll . liftIO $ readFile uuid
     runAt node' $ local $ liftIO $ writeFile uuid content
@@ -386,7 +382,7 @@ distribute :: (Loggable a, Distributable vector a ) => vector a -> DDS (vector a
 distribute = DDS . distribute'
 
 distribute' xs= loggedc $  do
-   nodes <- local getNodes                                        -- !> "DISTRIBUTE"
+   nodes <- local getEqualNodes                                        -- !> "DISTRIBUTE"
    let lnodes = length nodes
    let size= case F.length xs `div` (length nodes) of 0 ->1 ; n -> n
        xss= split size lnodes 1 xs                                     -- !> size
@@ -412,7 +408,7 @@ distribute'' xss nodes =
 -- The function parameter partition the text in words
 getText  :: (Loggable a, Distributable vector a) => (String -> [a]) -> String -> DDS (vector a)
 getText part str= DDS $ loggedc $ do
-   nodes' <- local getNodes                                        -- !> "getText"
+   nodes' <- local getEqualNodes                                        -- !> "getText"
    let nodes  = filter (not . isWebNode) nodes'
    let lnodes = length nodes
 
@@ -436,7 +432,7 @@ textUrl= getUrl  (map Text.pack . words)
 -- The first parameter is a function that divide the text in words
 getUrl :: (Loggable a, Distributable vector a) => (String -> [a]) -> String -> DDS (vector a)
 getUrl partitioner url= DDS $ do
-   nodes <- local getNodes                                        -- !> "DISTRIBUTE"
+   nodes <- local getEqualNodes                                        -- !> "DISTRIBUTE"
    let lnodes = length nodes
 
    parallelize  (process lnodes)  $ zip nodes [0..lnodes-1]    -- !> show xss
@@ -458,7 +454,7 @@ textFile= getFile (map Text.pack . words)
 -- the first parameter is the parser that generates elements from the content
 getFile :: (Loggable a, Distributable vector a) => (String -> [a]) ->  String -> DDS (vector a)
 getFile partitioner file= DDS $ do
-   nodes <- local getNodes                                        -- !> "DISTRIBUTE"
+   nodes <- local getEqualNodes                                        -- !> "DISTRIBUTE"
    let lnodes = length nodes
 
    parallelize  (process lnodes) $ zip nodes [0..lnodes-1]    -- !> show xss
