@@ -50,7 +50,7 @@ test=  initNodeServ service  "localhost" 8080 $ do
           
       --  local $ option "get" "get instances"
         
-          [node1,node2] <- requestInstance "" service 2  
+          [node1,node2] <- requestInstance "PIN1" service 2
    
           local ( option "f" "fire")   <|> return ""       -- to repeat the test,  remove exit
 
