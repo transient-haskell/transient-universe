@@ -62,8 +62,8 @@ getNodeParams  :: TransIO Node
 getNodeParams  =
       if isBrowserInstance then  liftIO createWebNode else do
           oneThread $ option "start" "re/start node"
-          host <- input (const True) "hostname of this node (must be reachable): "
-          port <- input (const True) "port to listen? "
+          host <- input (const True) "hostname of this node. (Must be reachable)? "
+          port <- input  (const True) "port to listen? "
           liftIO $ createNode host port
 
 initNodeDef :: Loggable a => String -> Int -> Cloud a -> TransIO a
@@ -92,7 +92,7 @@ inputNodes= onServer $ listNodes <|> addNew
   where
   addNew= do
           
-          local $ option "add"  "add a new node"
+          local $ oneThread $ option "add"  "add a new node"
 
           host <- local $ do
                     r <- input (const True) "Hostname of the node (none): "

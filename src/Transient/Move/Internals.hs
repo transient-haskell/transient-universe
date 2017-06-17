@@ -410,6 +410,7 @@ teleport =  do
 #else
         do
 #endif
+
          --read this Closure
           Closure closRemote  <- getData `onNothing` return (Closure 0 )
 
@@ -425,9 +426,8 @@ teleport =  do
           liftIO $ modifyMVar_ closures $ \map -> return $ M.insert closLocal (fulLog,cont) map
 
           let tosend= reverse $ if closRemote==0 then fulLog else  log
-
-
-          runTrans $ msend conn $ SMore $ ClosureData closRemote closLocal tosend
+          
+          runTrans $ do msend conn $ SMore $ ClosureData closRemote closLocal tosend
                                      !> ("teleport sending", SMore (closRemote,closLocal,tosend))
                                      !> "--------->------>---------->"
 
@@ -585,8 +585,8 @@ msend :: MonadIO m => Connection -> StreamData NodeMSG -> m ()
 
 #ifndef ghcjs_HOST_OS
 
-msend (Connection _ _ (Just (Node2Node _ sock _)) _ _ blocked _ _ _) r=
-   liftIO $   withMVar blocked $  const $ SBS.sendAll sock $ BC.pack (show r)  -- !> "N2N SEND"
+msend (Connection _ _ (Just (Node2Node _ sock _)) _ _ blocked _ _ _) r=do
+   liftIO $   withMVar blocked $  const $ SBS.sendAll sock $ BC.pack (show r)   !> "N2N SEND"
 
 msend (Connection _ _ (Just (TLSNode2Node ctx)) _ _ _ _ _ _) r=
      liftIO $ sendTLSData  ctx $ BS.pack (show r)                             -- !> "TLS SEND"
@@ -1097,7 +1097,7 @@ listen  (node@(Node _   port _ _ )) = onAll $ do
    case mlog of 
        SMore (RelayMSG _ _ _) ->relay mlog
        _ -> execLog  mlog
- `catcht` (\(e ::SomeException) -> liftIO (print e))
+ `catcht` (\(e ::SomeException) -> liftIO $ print  e)
 
 
 -- relayService :: TransIO ()
@@ -1187,9 +1187,11 @@ listenNew port conn'= do
    input <-  liftIO $ SBSL.getContents sock
 
    cutExceptions
+   
    onException $ \(e :: SomeException) -> do
-             cutExceptions
+            --  cutExceptions
              liftIO $ putStr "listen: " >> print e
+             
              let Connection{remoteNode=rnode,closures=closures,closChildren= rmap} = conn
              -- TODO How to close Connection by discriminating exceptions
              mnode <- liftIO $ readIORef rnode
@@ -1203,7 +1205,9 @@ listenNew port conn'= do
                   modifyMVar_ closures $ const $ return M.empty
                   writeIORef rmap M.empty
             --  topState >>= showThreads
+            -- cutExceptions
              killBranch
+             
 
    setData $ (ParseContext (NS.close sock >> error "Communication error" ) input
              ::ParseContext BS.ByteString)
@@ -1263,8 +1267,7 @@ listenNew port conn'= do
                    onException $ \(e :: SomeException) -> do
                             cutExceptions
                             liftIO $ putStr "listen websocket:" >> print e
-                            continue
-                            liftIO $ mclose conn'
+                            --liftIO $ mclose conn'
                             killBranch
                             empty
 --                   async (return (SMore (0,0,[Exec]))) <|> do
@@ -1832,24 +1835,24 @@ connect  node  remotenode =   do
 -- part of the cluster. Reconciliation results in each node in the cluster
 -- having exactly the same list of nodes.
 connect' :: Node -> Cloud ()
-connect'  remotenode= do
+connect'  remotenode= loggedc $ do
     nodes <- local getNodes
     localIO $ putStr "connecting to: " >> print remotenode
 
-    newNodes <- runAt remotenode $ interchange remotenode nodes
+    newNodes <- runAt remotenode $ interchange  nodes
 
-    -- local $ return ()                                                              !> "interchange finish"
+    local $ return ()                                                              !> "interchange finish"
 
     -- add the new  nodes to the local nodes in all the nodes connected previously
 
     let toAdd=remotenode:tail newNodes
     callNodes' nodes  (<>) mempty $ local $ do
-           liftIO $ putStr  "New nodes: " >> print toAdd
+           liftIO $ putStr  "New nodes: " >> print toAdd !> "NEWNODES"
            addNodes toAdd
 
     where
     -- receive new nodes and send their own
-    interchange remotemode nodes=
+    interchange  nodes=
         do
            newNodes <- local $ do
               conn@Connection{remoteNode=rnode, connData=Just cdata} <- getSData <|>
@@ -1869,12 +1872,12 @@ connect'  remotenode= do
               liftIO $ modifyMVar_ (fromJust $ connection callingNode) $ const $ return [conn]
 
 
-              onException $ \(e :: SomeException) -> do
-                   liftIO $ putStr "connect:" >> print e
-                   liftIO $ putStrLn "removing node: " >> print callingNode
-                  --  topState >>= showThreads
-                   nodes <- getNodes
-                   setNodes $ nodes \\ [callingNode]
+              -- onException $ \(e :: SomeException) -> do
+              --      liftIO $ putStr "connect:" >> print e
+              --      liftIO $ putStrLn "removing node: " >> print callingNode
+              --     --  topState >>= showThreads
+              --      nodes <- getNodes
+              --      setNodes $ nodes \\ [callingNode]
 
               return newNodes
 
@@ -1882,7 +1885,7 @@ connect'  remotenode= do
 
 
            mclustered . local $ do
-                liftIO $ putStrLn  "New nodes1111: " >> print newNodes
+                liftIO $ putStrLn  "New nodes: " >> print newNodes
 
                 addNodes newNodes  
 

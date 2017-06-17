@@ -56,7 +56,7 @@ main = keep . runCloud $ do
       rs <- callNodes' nodes1 (<>) mempty (installHere ident service (pernode+1)) <>           
             callNodes' nodes2 (<>) mempty (installHere ident service pernode)
       local $ addNodes rs 
-      return rs
+      return rs  !>  ("MONITOR RETURN---------------------------------->", rs)
        
     -- installIt = installHere ident service <|> installThere ident service
     installHere  :: String -> Service -> Int -> Cloud [ Node]
@@ -72,7 +72,7 @@ main = keep . runCloud $ do
                         nodelocal= Node "localhost" port Nothing [("externalNode", show $ node{nodeServices=[]})] -- local node
                     addNodes [node{nodeServices=("localNode", show nodelocal{nodeServices=[]}):nodeServices node},nodelocal ]
                     return node {nodeServices= nodeServices node ++ [("relay",show thisNode{nodeServices=[]})]}
-            -- `catcht` \(e :: SomeException) ->  liftIO (putStr "INSTALLLLLLLLLLLLLLL2222222: " >> print e) >> empty
+              `catcht` \(e :: SomeException) ->  liftIO (putStr "INSTALLLLLLLLLLLLLLL2222222: " >> print e) >> empty
 
       
 
@@ -84,7 +84,7 @@ install ::  Service  -> Int -> TransIO ()
 
 install  service port= do
     return () !> "IIIIIIIIIIIIIIINSTALL"
-    install'   `catcht` \(e :: SomeException) -> liftIO (putStr "INSTALL error: " >> print e) >> empty 
+    install'  `catcht` \(e :: SomeException) -> liftIO (putStr "INSTALL error: " >> print e) >> empty 
     where
     install'= do
         let host= "localhost"
