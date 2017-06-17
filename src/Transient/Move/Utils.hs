@@ -2,7 +2,7 @@
 --
 -- Module      :  Transient.Move.Utils
 -- Copyright   :
--- License     :  GPL-3
+-- License     :  MIT
 --
 -- Maintainer  :  agocorona@gmail.com
 -- Stability   :
