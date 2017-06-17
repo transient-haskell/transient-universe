@@ -61,7 +61,7 @@ initService ident service=
 requestInstance :: String -> Service -> Int -> Cloud [Node]
 requestInstance ident service num=  loggedc $ do
        return () !> "requestInstance"
-       local $ onException $ \(e:: ConnectionError) ->  startMonitor >> continue     !> ("Exception",e)
+       local $ onException $ \(e:: ConnectionError) ->  startMonitor >> continue     !> ("EXCEPTIOOOOOOOOOOON",e)
 
        nodes <- callService' ident monitorNode (ident,service,num)
        local $ addNodes nodes      -- !> ("ADDNODES",service)
@@ -165,11 +165,12 @@ monitorNode= unsafePerformIO $ createNodeServ "localhost"
 callService' ident node params = do
     log <- onAll $ do
              log  <- getSData <|> return emptyLog
-             setData emptyLog
+             setData emptyLog  
              return log
 
     r <- wormhole node $  do
              local $ return params
+             
              teleport
           --   local empty  `asTypeOf` typea params
              local empty
@@ -189,8 +190,8 @@ callService' ident node params = do
 
     emptyLog= Log False [] []
 
-catchc :: Exception e => Cloud a -> (e -> Cloud a) -> Cloud a
-catchc a b= Cloud $ catcht (runCloud' a) (\e -> runCloud' $ b e)
+-- catchc :: Exception e => Cloud a -> (e -> Cloud a) -> Cloud a
+-- catchc a b= Cloud $ catcht (runCloud' a) (\e -> runCloud' $ b e)
 
 runEmbeddedService :: (Loggable a, Loggable b) =>  Service -> (a -> Cloud b) -> Cloud b
 runEmbeddedService servname serv =  do
@@ -218,7 +219,6 @@ runService servname defPort serv =  do
    service=
        wormhole (notused 1) $  do
           x <- local . return $ notused 2
-         -- setData emptyLog
           r <- local $ runCloud  (serv x) -- <** setData WasRemote
           setData emptyLog
           local $ return r
@@ -241,8 +241,8 @@ runService servname defPort serv =  do
       getNode :: TransIO Node
       getNode =  if isBrowserInstance then liftIO createWebNode else do
           oneThread $ option "start" "re/start node"
-          host <- input (const True) "hostname of this node (must be reachable) (\"localhost\"): "
-          port <- input (const True)  "port to listen? (3000) "
+          host <- input' (Just "localhost") (const True) "hostname of this node (must be reachable) (\"localhost\"): "
+          port <- input' (Just 3000) (const True)  "port to listen? (3000) "
           liftIO $ createNodeServ host port servs
 
       inputNodes= do

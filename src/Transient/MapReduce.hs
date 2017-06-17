@@ -32,7 +32,7 @@ data PartRef a=PartRef a
 
 #else
 
-import Transient.Internals
+import Transient.Internals hiding (Ref)
 
 import Transient.Move.Internals hiding (pack)
 import Transient.Indeterminism
