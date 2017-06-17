@@ -216,7 +216,7 @@ reduce red  (dds@(DDS mx))= loggedc $ do
        foldAndSend node nodes ref=  do
 
              pairs <- onAll $ getPartitionData1 ref
-                        <|>  return (error $ "DDS computed out of his node:"++ show ref)
+                        <|>  return (error $ "DDS computed out of his node:"++ show ref    )
              let mpairs = groupByDestiny pairs
 
              length <- local . return $ M.size mpairs
