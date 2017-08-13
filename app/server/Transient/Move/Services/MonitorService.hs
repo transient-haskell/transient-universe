@@ -56,7 +56,7 @@ main = keep . runCloud $ do
       rs <- callNodes' nodes1 (<>) mempty (installHere ident service (pernode+1)) <>           
             callNodes' nodes2 (<>) mempty (installHere ident service pernode)
       local $ addNodes rs 
-      return rs  !>  ("MONITOR RETURN---------------------------------->", rs)
+      return rs   -- !>  ("MONITOR RETURN---------------------------------->", rs)
        
     -- installIt = installHere ident service <|> installThere ident service
     installHere  :: String -> Service -> Int -> Cloud [ Node]
@@ -83,14 +83,14 @@ main = keep . runCloud $ do
 install ::  Service  -> Int -> TransIO ()
 
 install  service port= do
-    return () !> "IIIIIIIIIIIIIIINSTALL"
+    -- return () !> "IIIIIIIIIIIIIIINSTALL"
     install'  `catcht` \(e :: SomeException) -> liftIO (putStr "INSTALL error: " >> print e) >> empty 
     where
     install'= do
         let host= "localhost"
         program <- return (lookup "executable" service) `onNothing` empty
-        return ()  !> ("program",program)
-        tryExec program host port  <|> tryDocker service host port 
+        -- return ()  !> ("program",program)
+        tryExec program host port  <|> tryDocker service host port program
                                    <|> do tryInstall service  ; tryExec program host port
 
 emptyIfNothing :: Maybe a -> TransIO a
@@ -104,18 +104,18 @@ tryInstall service = do
     install package
         | "git:" `isPrefixOf` package= installGit package  
         | "https://github.com" `isPrefixOf` package =  installGit package  
-        | "http://github.com" `isPrefixOf` package =  installGit package  
+        | "http://github.com"  `isPrefixOf` package =  installGit package  
 
 
-tryDocker service host port= do
+tryDocker service host port program= do
      image <- emptyIfNothing $ lookup "image" service
      path <- Transient $ liftIO $ findExecutable "docker"    -- return empty if not found
-     liftIO $ callProcess path ["run", image,"-p","start/"++host++"/"++ show port]
+     liftIO $ callProcess path ["run", image,"-p"," start/"++host++"/"++ show port++ " " ++ program]
 
 
 tryExec program host port= do
-     path <-  Transient $ liftIO $ findExecutable program   !> ("findExecutable", program)
-     spawnProgram program host port    !>"spawn"
+     path <-  Transient $ liftIO $ findExecutable program  -- !> ("findExecutable", program)
+     spawnProgram program host port  --  !>"spawn"
      where
      spawnProgram  program host port= liftIO $ do
 

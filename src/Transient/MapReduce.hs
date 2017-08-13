@@ -7,7 +7,8 @@ module Transient.MapReduce
 Distributable(..),distribute, getText,
 getUrl, getFile,textUrl, textFile,
 mapKeyB, mapKeyU, reduce,eval,
-PartRef)
+--v* internals
+DDS(..),Partition(..),PartRef(..))
  where
 
 #ifdef ghcjs_HOST_OS
@@ -25,7 +26,7 @@ getUrl _ _ = undefined
 textUrl _ = undefined
 getFile _ _ = undefined
 eval _= local stop
-
+data Partition
 data DDS= DDS
 class Distributable
 data PartRef a=PartRef a
@@ -127,6 +128,7 @@ class (F.Foldable c, Typeable c, Typeable a, Monoid (c a), Loggable (c a)) => Di
    splitAt :: Int -> c a -> (c a, c a)
    fromList :: [a] -> c a
 
+
 instance (Loggable a) => Distributable DV.Vector a where
    singleton = DV.singleton
    splitAt= DV.splitAt
@@ -186,6 +188,7 @@ mapKey f (DDS mx)= DDS $ loggedc $  do
 data ReduceChunk a= EndReduce | Reduce a deriving (Typeable, Read, Show)
 
 boxids= unsafePerformIO $ newIORef 0
+
 
 reduce ::  (Hashable k,Ord k, Distributable vector a, Loggable k,Loggable a)
              => (a -> a -> a) -> DDS (M.Map k (vector a)) ->Cloud (M.Map k a)
@@ -408,15 +411,13 @@ distribute'' xss nodes =
 -- The function parameter partition the text in words
 getText  :: (Loggable a, Distributable vector a) => (String -> [a]) -> String -> DDS (vector a)
 getText part str= DDS $ loggedc $ do
-   nodes' <- local getEqualNodes                                        -- !> "getText"
-   let nodes  = filter (not . isWebNode) nodes'
+   nodes <- local getEqualNodes                                        -- !> "getText"
    let lnodes = length nodes
 
    parallelize  (process lnodes)  $ zip nodes [0..lnodes-1]
    where
-   isWebNode node= "webnode" `elem` (map fst $ nodeServices node)
 
-   process lnodes (node,i)= do
+   process lnodes (node,i)= 
       runAt node $ local $ do
             let xs = part str
                 size= case length xs `div` lnodes of 0 ->1 ; n -> n

@@ -5,8 +5,6 @@ module Main where
 
 import           Control.Monad
 import           Control.Monad.IO.Class
-import           Data.IORef
-import           GHC.Conc
 import           Control.Applicative
 import           Data.Monoid
 import           Transient.Base

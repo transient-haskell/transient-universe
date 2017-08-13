@@ -11,7 +11,7 @@
 -- |
 --
 -----------------------------------------------------------------------------
-{-# LANGUAGE ScopedTypeVariables, CPP #-}
+{-# LANGUAGE ScopedTypeVariables, CPP, FlexibleInstances, UndecidableInstances #-}
 
 #ifndef ghcjs_HOST_OS
 
@@ -19,22 +19,15 @@ module Transient.Move.Services  where
 
 import Transient.Internals
 import Transient.Move.Internals
-import Transient.Logged
 -- import Transient.Backtrack
 -- import Transient.Internals(RemoteStatus(..), Log(..))
 import Transient.Move.Utils
 
--- import Transient.EVars
-import Transient.Indeterminism
 import Control.Monad.IO.Class
 import System.IO.Unsafe
 import Control.Concurrent.MVar
 import Control.Applicative
 import System.Process
-import Control.Monad
-import Data.List
-import Data.Maybe
-import Data.Monoid
 import Control.Concurrent(threadDelay)
 import Control.Exception hiding(onException)
 import Data.IORef
@@ -60,8 +53,8 @@ initService ident service=
 
 requestInstance :: String -> Service -> Int -> Cloud [Node]
 requestInstance ident service num=  loggedc $ do
-       return () !> "requestInstance"
-       local $ onException $ \(e:: ConnectionError) ->  startMonitor >> continue     !> ("EXCEPTIOOOOOOOOOOON",e)
+    --    return () !> "requestInstance"
+       local $ onException $ \(e:: ConnectionError) ->  startMonitor >> continue   --   !> ("EXCEPTIOOOOOOOOOOON",e)
 
        nodes <- callService' ident monitorNode (ident,service,num)
        local $ addNodes nodes      -- !> ("ADDNODES",service)
@@ -264,3 +257,5 @@ runService servname defPort serv =  do
 requestInstance :: String -> Service -> Int -> Cloud [Node]
 requestInstance ident service num= logged empty
 #endif
+
+

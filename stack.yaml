@@ -2,8 +2,8 @@ resolver: lts-6.6
 packages:
 - '.'
 - location:
-    git:  https://github.com/agocorona/transient.git
-    commit: 3b4fc693c2b573a6dd77c261a1d59214b2b54a81
+    git:  https://github.com/transient-haskell/transient.git
+    commit: b15972a71634efe3b85a1480cecc35b50d424e5d
 
   extra-dep: true
 extra-package-dbs: []

@@ -66,10 +66,10 @@ getMyNode, getWebServerNode, getNodes, nodeList, isBrowserInstance,
 
 
 -- * Running Local Computations
-local, onAll, lazy, loggedc, lliftIO, localIO, fullStop,
+local, onAll, lazy, fixRemote, loggedc, lliftIO, localIO, fullStop, 
 
 -- * Moving Computations
-wormhole, teleport, copyData,
+wormhole, teleport, copyData, fixClosure,
 
 -- * Running at a Remote Node
 beamTo, forkTo, callTo, runAt, atRemote,

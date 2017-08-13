@@ -128,7 +128,7 @@ newtype Cloud a= Cloud {runCloud' ::TransIO a} deriving (Functor,Applicative,Mon
 runCloud :: Cloud a -> TransIO a
 
 runCloud x= do
-       closRemote  <- getSData <|> return (Closure 0)
+       closRemote  <- getSData <|> return (Closure  0)
        runCloud' x <*** setData  closRemote
 
 
@@ -214,11 +214,22 @@ lazy :: TransIO a -> Cloud a
 lazy mx= onAll $ getCont >>= \st -> Transient $
         return $ unsafePerformIO $  runStateT (runTrans mx) st >>=  return .fst
 
+-- | executes a non-serilizable action  in the remote node, whose result can be used by subsequent remote invocations
+fixRemote mx= do
+             r <- lazy mx
+             fixClosure
+             return r
+        
+-- | experimental: subsequent remote invocatioms will send logs to this closure. Therefore logs will be shorter. 
+--
+-- Also, non serializable statements before it will not be re-executed
+fixClosure= atRemote $ local $ async $ return ()
+
 -- log the result a cloud computation. like `loogged`, this erases all the log produced by computations
 -- inside and substitute it for that single result when the computation is completed.
 loggedc :: Loggable a => Cloud a -> Cloud a
 loggedc (Cloud mx)= Cloud $ do
-    closRemote  <- getSData <|> return (Closure 0 )
+    closRemote  <- getSData <|> return (Closure  0 )
     logged mx <*** setData  closRemote
 
 
@@ -282,9 +293,11 @@ callTo' node remoteProc=  do
 -- the result back  to the original node.
 atRemote :: Loggable a => Cloud a -> Cloud a
 atRemote proc= loggedc' $ do
+     was <- lazy $ getSData <|> return NoRemote
      teleport                                              -- !> "teleport 1111"
      r <- Cloud $ runCloud proc <** setData WasRemote
      teleport                                              -- !> "teleport 2222"
+     onAll $ setData was
      return r
 
 -- | synonymous of `callTo`
@@ -345,7 +358,7 @@ wormhole :: Loggable a => Node -> Cloud a -> Cloud a
 wormhole node (Cloud comp) = local $ Transient $ do
    moldconn <- getData :: StateIO (Maybe Connection)
    mclosure <- getData :: StateIO (Maybe Closure)
-
+   
    -- labelState $ "wormhole" ++ show node
    logdata@(Log rec log fulLog) <- getData `onNothing` return (Log False [][])
 
@@ -356,6 +369,7 @@ wormhole node (Cloud comp) = local $ Transient $ do
                     conn <-  mconnect node
                     liftIO $ writeIORef (remoteNode conn) $ Just node
                     setData  conn{calling= True}
+                    setData $ (Closure 0 )
 
                     comp )
                   <*** do when (isJust moldconn) . setData $ fromJust moldconn
@@ -387,14 +401,17 @@ teleport ::   Cloud ()
 teleport =  do
   local $ Transient $ do
      cont <- get
-     -- labelState "teleport"
-     -- send log with closure at head
      Log rec log fulLog <- getData `onNothing` return (Log False [][])
+
+     conn@Connection{connData=contype,closures= closures,calling= calling} <- getData
+             `onNothing` error "teleport: No connection defined: use wormhole"
+
      if not rec   -- !> ("teleport rec,loc fulLog=",rec,log,fulLog)
                   -- if is not recovering in the remote node then it is active
       then  do
-        conn@Connection{connData=contype,closures= closures,calling= calling} <- getData
-             `onNothing` error "teleport: No connection defined: use wormhole"
+
+ 
+
 #ifndef ghcjs_HOST_OS
         case contype of
          Just Self ->  runTrans $ do
@@ -412,31 +429,32 @@ teleport =  do
 #endif
 
          --read this Closure
-          Closure closRemote  <- getData `onNothing` return (Closure 0 )
+          Closure closRemote  <- getData `onNothing`  return (Closure 0 )
 
+          let closLocal = sum $ map ( \x -> case x of Wait -> 100000;
+                                                      Exec -> 1000
+                                                      _ -> 1) fulLog          
          --set his own closure in his Node data
 
-          let closLocal = sum $ map (\x-> case x of Wait -> 100000;
-                                                    Exec -> 1000
-                                                    _ -> 1) fulLog
 
---         closLocal  <-   liftIO $ randomRIO (0,1000000)
+          -- closLocal  <-   liftIO $ randomRIO (0,1000000)
 --          node <- runTrans getMyNode
           
           liftIO $ modifyMVar_ closures $ \map -> return $ M.insert closLocal (fulLog,cont) map
 
-          let tosend= reverse $ if closRemote==0 then fulLog else  log
-          
+          let tosend= reverse $ if closRemote==0 then fulLog     else log 
+
+          -- send log with closure ids at head
           runTrans $ do msend conn $ SMore $ ClosureData closRemote closLocal tosend
                                      !> ("teleport sending", SMore (closRemote,closLocal,tosend))
                                      !> "--------->------>---------->"
+                  
 
-          setData $ if (not calling) then  WasRemote else WasParallel
+          setData $ if (not calling) then  WasRemote else WasParallel !> "SET WASPAraLLEL"
 
           return Nothing
 
       else do
-
          delData WasRemote                -- !> "deleting wasremote in teleport"
                                           -- it is recovering, therefore it will be the
                                           -- local, not remote
@@ -463,7 +481,7 @@ copyData def = do
 putMailbox :: Typeable a => a -> TransIO ()
 putMailbox = putMailbox' (0::Int)
 
--- | write to a mailbox identified by an Integer besides the type
+-- | write to a mailbox identified by an identifier besides the type
 putMailbox' :: (Typeable b, Ord b, Typeable a) =>  b -> a -> TransIO ()
 putMailbox'  idbox dat= do
    let name= MailboxId idbox $ typeOf dat
@@ -492,7 +510,7 @@ errorMailBox= error "MailBox: No connection open. Use wormhole"
 getMailbox :: Typeable a => TransIO a
 getMailbox = getMailbox' (0 :: Int)
 
--- | read from a mailbox identified by a number besides the type
+-- | read from a mailbox identified by an identifier besides the type
 getMailbox' :: (Typeable b, Ord b, Typeable a) => b -> TransIO a
 getMailbox' mboxid = x where
  x = do
@@ -628,7 +646,7 @@ wsRead ws= do
   dat <- react (hsonmessage ws) (return ())
   case JM.getData dat of
     JM.StringData str  ->  return (read' $ JS.unpack str)
-        --         !> ("Browser webSocket read", str)  !> "<------<----<----<------"
+                 !> ("Browser webSocket read", str)  !> "<------<----<----<------"
     JM.BlobData   blob -> error " blob"
     JM.ArrayBufferData arrBuffer -> error "arrBuffer"
 
@@ -702,7 +720,7 @@ mread (Connection _ _  (Just (Node2Web sconn )) _ _ _ _ _ _)=
         parallel $ do
             s <- WS.receiveData sconn
             return . read' $  BS.unpack s
-              --  !>  ("WS MREAD RECEIVED ----<----<------<--------", s)
+                !>  ("WS MREAD RECEIVED ----<----<------<--------", s)
 
 mread (Connection  _ _ (Just (Relay conn _  )) _ _ _ _ _ _)=  
      mread conn  -- !> "MREAD RELAY"
@@ -1053,7 +1071,7 @@ defConnection = liftIO $ do
   x <- newMVar ()
   y <- newMVar M.empty
   noremote <- newIORef Nothing
-  z <-  return $ error "closchildren newIORef M.empty"
+  z <-  return $ error "closchildren: newIORef M.empty"
   return $ Connection my noremote Nothing  8192
                  (error "defConnection: accessing network events out of listen")
                  x  False y z
@@ -1241,7 +1259,7 @@ listenNew port conn'= do
 
                log' <- case (method,lookup "Content-Type" headers) of
                        ("POST",Just "application/x-www-form-urlencoded") -> do
-                            len <- read <$>  BC.unpack
+                            len <- read <$> BC.unpack
                                         <$> (Transient $ return (lookup "Content-Length" headers))
                             setData $ ParseContext (return mempty) $ BS.take len str
 
@@ -1275,8 +1293,8 @@ listenNew port conn'= do
 --                     return ()                                                   !> "WEBSOCKET"
                      r <-  parallel $ do
                              msg <- WS.receiveData sconn
-                            --  return () !> ("Server WebSocket msg read",msg)
-                            --            !> "<-------<---------<--------------"
+                             return () !> ("Server WebSocket msg read",msg)
+                                         !> "<-------<---------<--------------"
 
                              case reads $ BS.unpack msg of
                                [] -> do
@@ -1371,7 +1389,7 @@ listenResponses= do
 
 type IdClosure= Int
 
-newtype Closure= Closure IdClosure deriving Show
+newtype Closure= Closure  IdClosure -- deriving Show
 
 execLog :: StreamData NodeMSG -> TransIO ()
 execLog  mlog = Transient $
@@ -1390,7 +1408,7 @@ execLog  mlog = Transient $
       conn@Connection {closures=closures} <- getData `onNothing` error "Listen: myNode not set"
       if closl== 0 then do
            setData $ Log True log  $ reverse log
-           setData $ Closure closr
+           setData $ Closure  closr
            return $ Just ()                  --  !> "executing top level closure"
        else do
 
@@ -1421,7 +1439,7 @@ execLog  mlog = Transient $
                         liftIO $ runStateT (do
                              let nlog= reverse log ++  fulLog
                              setData $ Log True  log  nlog
-                             setData $ Closure closr
+                             setData $ Closure  closr
 --                                                                !> ("SETCLOSURE",closr)
                              runContinuation cont ()) cont
                         return Nothing
