@@ -33,7 +33,7 @@ service= [("service","test suite")
 main= do
      mr <- keep $ test   `catcht` \(e:: SomeException) -> liftIO (putStr "EXCEPTiON: " >> print e) >> exit (Just e)
      case mr of
-       Nothing -> print "EXCEPTION" >> exitFailure
+       Nothing -> print "NO RESULT, NO THREADS RUNNING" >> exitFailure
        Just Nothing -> print "SUCCESS" >> exitSuccess 
        Just (Just e) -> putStr "FAIL: " >> print e >> exitFailure
 
@@ -89,8 +89,8 @@ test=  initNodeServ service  "localhost" 8080 $ do
           r <- reduce  (+)  . mapKeyB (\w -> (w, 1 :: Int))  $ getText  words "hello world hello"
           localIO $  print r
           assert (sort (M.toList r) == sort [("hello",2::Int),("world",1)]) $ return r
-
-          return Nothing
+          
+          localIO endMonitor
 
           local $ exit (Nothing  :: Maybe SomeException) -- remove this to repeat the test
  

@@ -62,10 +62,17 @@ requestInstance ident service num=  loggedc $ do
 
 startMonitor :: MonadIO m => m ()
 startMonitor=  liftIO $ do
-        createProcess . shell $ "monitorService -p start/localhost/"++ show monitorPort
+        (_,_,_,h) <- createProcess . shell $ "monitorService -p start/localhost/"++ show monitorPort
+        writeIORef monitorHandle $ Just h
         threadDelay 2000000
 
+monitorHandle= unsafePerformIO $ newIORef Nothing
 
+endMonitor= do
+    mm <- readIORef monitorHandle
+    case mm of
+        Nothing -> return ()  
+        Just h  -> interruptProcessGroupOf h
 
 findInNodes :: Service -> TransIO [Node]
 findInNodes service =  do
