@@ -32,10 +32,13 @@ service= [("service","test suite")
 
 main= do
      mr <- keep $ test   `catcht` \(e:: SomeException) -> liftIO (putStr "EXCEPTiON: " >> print e) >> exit (Just e)
+     endMonitor 
+
      case mr of
        Nothing -> print "NO RESULT, NO THREADS RUNNING" >> exitFailure
        Just Nothing -> print "SUCCESS" >> exitSuccess 
        Just (Just e) -> putStr "FAIL: " >> print e >> exitFailure
+
 
 
 test=  initNodeServ service  "localhost" 8080 $ do
@@ -44,7 +47,6 @@ test=  initNodeServ service  "localhost" 8080 $ do
           node0 <- local getMyNode
           
           local $ guard (nodePort node0== 8080)       -- only executes in node 8080
-
           
       --  local $ option "get" "get instances"
 
@@ -90,7 +92,6 @@ test=  initNodeServ service  "localhost" 8080 $ do
           localIO $  print r
           assert (sort (M.toList r) == sort [("hello",2::Int),("world",1)]) $ return r
           
-          localIO endMonitor
 
           local $ exit (Nothing  :: Maybe SomeException) -- remove this to repeat the test
  

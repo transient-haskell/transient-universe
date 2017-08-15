@@ -55,7 +55,6 @@ requestInstance :: String -> Service -> Int -> Cloud [Node]
 requestInstance ident service num=  loggedc $ do
     --    return () !> "requestInstance"
        local $ onException $ \(e:: ConnectionError) ->  startMonitor >> continue   --   !> ("EXCEPTIOOOOOOOOOOON",e)
-
        nodes <- callService' ident monitorNode (ident,service,num)
        local $ addNodes nodes      -- !> ("ADDNODES",service)
        return nodes
