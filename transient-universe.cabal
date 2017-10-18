@@ -5,7 +5,7 @@ build-type: Simple
 license: MIT
 license-file: LICENSE
 maintainer: agocorona@gmail.com
-homepage: http://www.fpcomplete.com/user/agocorona
+homepage: https://github.com/transient-haskell/transient-universe
 bug-reports: https://github.com/agocorona/transient-universe/issues
 synopsis: Remote execution and map-reduce: distributed computing for Transient
 description:
