@@ -22,8 +22,7 @@ import           Control.Exception
 
 -- #define _UPK_(x) {-# UNPACK #-} !(x)
 
-
-#define shouldRun(x) (local $ getMyNode >>= \p -> assert ( p == (x)) (return ()))
+shouldRun x = local $ getMyNode >>= \p -> assert ( p == (x)) (return ())
 
 
 service= [("service","test suite")
