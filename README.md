@@ -22,7 +22,7 @@ Browser nodes, running transient programs compiled with ghcjs are integrated wit
 
 Distributed Browser/server Widgets
 -------
-Browser nodes can integrate Hplayground for ghcjs, a reactive client side library based in trasient (package  [axiom](https://github.com/transient-haskell/axiom). Axiom is a client-side web framework that invoke the server using transient-universe primitives. These widgets can create widgets with HTML form elements and control the server nodes. A computation can move from browser to server and back despite the different architecture.
+Browser nodes can integrate a reactive client side library based in trasient (package  [axiom](https://github.com/transient-haskell/axiom)). These widgets can create widgets with HTML form elements and control the server nodes. A computation can move from browser to server and back despite the different architecture.
 
 Widgets with code running in browser and servers can compose with other widgets. A Browser node can gain access to many server nodes trough the  server that delivered the web application.
 
