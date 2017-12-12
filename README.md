@@ -15,8 +15,11 @@ The primitives that perform the moving of computations are called `wormhole` and
 
 All the nodes run the same program compiled for different architectures. It defines a Cloud computation (monad). It is a thin layer on top of transient with additional primitives and services that run a single program in one or many nodes.
 
+Example:
+=======
+
 ```haskell
-main= keep $ initNode $ inputNodes <|> mypPogram
+main= keep . initNode $ inputNodes <|> mypPogram
 
 myProgram= do
     nodes <- local getNodes
