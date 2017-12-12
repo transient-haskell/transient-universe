@@ -15,6 +15,22 @@ The primitives that perform the moving of computations are called `wormhole` and
 
 All the nodes run the same program compiled for different architectures. It defines a Cloud computation (monad). It is a thin layer on top of transient with additional primitives and services that run a single program in one or many nodes.
 
+```haskell
+main= keep $ initNode $ inputNodes <|> mypPogram
+
+myProgram= do
+    nodes <- local $ getNodes
+    guard $ length nodes > 1
+    let node2= nodes !! 1
+    r <- runAt node2 . local $ waitEvents getLine
+    localIO $ print r
+    
+```
+
+This program will stream any text that you input in the console of the node 2.
+
+To know how to initialize the nodes, see the section of the  [Tutorial](https://github.com/transient-haskell/transient/wiki/Transient-tutorial#command-line-input)
+
 Browser integration
 ==================
 
