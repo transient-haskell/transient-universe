@@ -21,6 +21,7 @@ Example:
 ```haskell
 main= keep . initNode $ inputNodes <|> mypPogram
 
+myProgram :: Cloud ()
 myProgram= do
     nodes <- local getNodes
     guard $ length nodes > 1
@@ -30,7 +31,7 @@ myProgram= do
     
 ```
 
-This program will stream any text that you input in the console of the node 2.
+This program will stream and print any text that you input in the console of the node 2.
 
 To know how to initialize the nodes, see the section of the  [Tutorial](https://github.com/transient-haskell/transient/wiki/Transient-tutorial#command-line-input)
 
