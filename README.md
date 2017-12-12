@@ -19,7 +19,7 @@ All the nodes run the same program compiled for different architectures. It defi
 main= keep $ initNode $ inputNodes <|> mypPogram
 
 myProgram= do
-    nodes <- local $ getNodes
+    nodes <- local getNodes
     guard $ length nodes > 1
     let node2= nodes !! 1
     r <- runAt node2 . local $ waitEvents getLine
