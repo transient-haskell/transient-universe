@@ -23,8 +23,7 @@ import           Control.Exception
 -- #define _UPK_(x) {-# UNPACK #-} !(x)
 
 
-#define shouldRun(x) (local $ getMyNode >>= \p -> assert ( p == (x)) (return ()))
-
+shouldRun x=  local $ getMyNode >>= \p -> assert ( p == (x)) (return ())
 
 service= [("service","test suite")
          ,("executable", "test-transient1")
@@ -50,15 +49,8 @@ test=  initNodeServ service  "localhost" 8080 $ do
           
       --  local $ option "get" "get instances"
 
-          localIO $ return () !> "REQUEST INSTANCE "
         
           [node1, node2] <- requestInstance "PIN1" service 2
-        --   localIO $ putStrLn "------checking connect --------"
-        --   connect' node1
-        --   connect' node2
-        --   runAt node1 $ local $ do
-        --        nodes <- getNodes
-        --        assert (length nodes== 3) return ()
  
 
           local ( option "f" "fire")   <|> return ""       -- to repeat the test,  remove exit

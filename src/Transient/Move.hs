@@ -59,7 +59,7 @@ Service(), createNodeServ, createNode, createWebNode,
 Transient.Move.Internals.connect, connect', listen,
 -- Low level APIs
 addNodes, shuffleNodes,
-Connection(..), ConnectionData(..), defConnection,
+--Connection(..), ConnectionData(..), defConnection,
 
 -- ** Querying nodes
 getMyNode, getWebServerNode, getNodes, nodeList, isBrowserInstance,
@@ -92,13 +92,6 @@ setBuffSize, getBuffSize,
 -- * REST API
 api, HTTPMethod(..), PostParams,
 #endif
-
--- * Low Level APIs
-
-#ifndef ghcjs_HOST_OS
- ParseContext(..)
-#endif
-
 ) where
 
 import Transient.Move.Internals

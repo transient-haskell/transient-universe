@@ -17,7 +17,7 @@ data AppState = AppState
 data Action
   = ButtonClicked
   | Stop
-  deriving (Read, Show, Eq)ca
+  deriving (Read, Show, Eq)
 
 (|>) = flip ($)
 

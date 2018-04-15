@@ -11,21 +11,18 @@
 -- |
 --
 -----------------------------------------------------------------------------
-
+{-# LANGUAGE ScopedTypeVariables #-}
 module Transient.Move.Utils (initNode,initNodeDef, initNodeServ, inputNodes, simpleWebApp, initWebApp
-, onServer, onBrowser, runTestNodes)
+, onServer, onBrowser, atServer, atBrowser, runTestNodes)
  where
 
 --import Transient.Base
 import Transient.Internals
 import Transient.Move.Internals
 import Control.Applicative
-import Control.Monad.IO.Class
+import Control.Monad.State
 import Data.IORef
 import System.Environment
-
-import Control.Concurrent.MVar
-import Data.Maybe
 
 -- | ask in the console for the port number and initializes a node in the port specified
 -- It needs the application to be initialized with `keep` to get input from the user.
@@ -38,7 +35,7 @@ import Data.Maybe
 --
 -- > ghc program.hs
 -- > ghcjs program.hs -o static/out
--- > ./program -p start/8080
+-- > ./program -p start/myhost/8080
 --
 -- `initNode`, when the application has been loaded and executed in the browser, will perform a `wormhole` to his server node.
 --  So the application run within this wormhole.
@@ -55,6 +52,7 @@ import Data.Maybe
 initNode :: Loggable a => Cloud a -> TransIO a
 initNode app= do
    node <- getNodeParams
+   --abduce
    initWebApp node  app
 
 
@@ -88,21 +86,21 @@ initNodeServ services host port app= do
 -- | ask for nodes to be added to the list of known nodes. it also ask to connect to the node to get
 -- his list of known nodes. It returns empty
 inputNodes :: Cloud empty
-inputNodes= onServer $ listNodes <|> addNew
+inputNodes= onServer $ do 
+  --local abduce
+  listNodes <|> addNew
   where
   addNew= do
-          
           local $ oneThread $ option "add"  "add a new node"
+          host      <- local $ do
+                          r <- input (const True) "Hostname of the node (none): "
+                          if r ==  "" then stop else return r
 
-          host <- local $ do
-                    r <- input (const True) "Hostname of the node (none): "
-                    if r ==  "" then stop else return r
+          port      <- local $ input (const True) "port? "
 
-          port <-  local $ input (const True) "port? "
+          services  <- local $ input' (Just []) (const True) "services? ([]) "
 
-          services <- local $ input' (Just []) (const True) "services? [] "
-
-          connectit <- local $ input (\x -> x=="y" || x== "n") "connect to the node to interchange node lists? "
+          connectit <- local $ input (\x -> x=="y" || x== "n") "connect to the node to interchange node lists? (n) "
           nnode <- localIO $ createNodeServ host port  services
           if connectit== "y" then connect'  nnode
                              else  local $ do
@@ -153,19 +151,34 @@ initWebApp node app=  do
         listen mynode <|> return()
         wormhole serverNode  app  
 
--- only execute if the the program is executing in the browser. The code inside can contain calls to the server.
+-- | only execute if the the program is executing in the browser. The code inside can contain calls to the server.
 -- Otherwise return empty (so it stop the computation and may execute alternative computations).
 onBrowser :: Cloud a -> Cloud a
 onBrowser x= do
      r <- local $  return isBrowserInstance
      if r then x else empty
 
--- only executes the computaion if it is in the server, but the computation can call the browser. Otherwise return empty
+-- | only executes the computaion if it is in the server, but the computation can call the browser. Otherwise return empty
 onServer :: Cloud a -> Cloud a
 onServer x= do
      r <- local $  return isBrowserInstance
      if not r then x else empty
 
+
+-- | If the computation is running in the server, translates i to the browser and return back. 
+-- If it is already in the browser, just execute it
+atBrowser :: Loggable a => Cloud a -> Cloud a
+atBrowser x= do
+        r <- local $  return isBrowserInstance
+        if r then x else atRemote x
+
+-- | If the computation is running in the browser, translates i to the server and return back. 
+-- If it is already in the server, just execute it
+atServer :: Loggable a => Cloud a -> Cloud a
+atServer x= do
+        r <- local $  return isBrowserInstance
+        if not r then x else atRemote x
+         
 -- | run N nodes (N ports to listen) in the same program. For testing purposes.
 -- It add them to the list of known nodes, so it is possible to perform `clustered` operations with them.
 runTestNodes ports= do

@@ -180,14 +180,14 @@ callService' ident node params = do
     where
     typea :: a -> Cloud a
     typea = undefined
-    restoreLog (Log _ _ logw)= onAll $ do
-       Log _ _ logw' <- getSData <|> return emptyLog
+    restoreLog (Log _ _ logw hash)= onAll $ do
+       Log _ _ logw' hash' <- getSData <|> return emptyLog
 
        let newlog= reverse logw' ++ logw
 --       return ()                 !> ("newlog", logw,logw')
-       setData $ Log False newlog newlog
+       setData $ Log False newlog newlog (hash + hash')
 
-    emptyLog= Log False [] []
+    emptyLog= Log False [] [] 0
 
 -- catchc :: Exception e => Cloud a -> (e -> Cloud a) -> Cloud a
 -- catchc a b= Cloud $ catcht (runCloud' a) (\e -> runCloud' $ b e)
@@ -224,7 +224,7 @@ runService servname defPort serv =  do
           teleport
           return r
 
-   emptyLog= Log False [] []
+   emptyLog= Log False [] [] 0
 
    initNodeServ  servs=do
       mynode <- local  getNode

@@ -235,8 +235,8 @@ reduce red  (dds@(DDS mx))= loggedc $ do
 
                  n <- localIO  $ modifyMVar nsent $ \r -> return (r+1, r+1)
 
-                 runAt (nodes !! i) $  local $ putMailbox' mboxid (Reduce folded)
---                                                     !> ("send",n,length,port,i,folded))
+                 (runAt (nodes !! i) $  local $ putMailbox' mboxid (Reduce folded))
+                                                     !> ("send",n,length,i,folded)
 
 --                 return () !> (port,n,length)
 
@@ -292,10 +292,10 @@ reduce red  (dds@(DDS mx))= loggedc $ do
                                   let maccum =  M.lookup k map
                                   return $ M.insert k (case maccum of
                                     Just accum ->  red input accum
-                                    Nothing    ->  input) map
+                                    Nothing    ->  input) map 
 
                 mapM addIt  (kvs `asTypeOf` paramOf' dds)
-                                                                   --  !> ("Received Reduce",kvs)
+                                                                     !> ("Received Reduce",kvs)
                 stop
 
 
@@ -316,9 +316,6 @@ reduce red  (dds@(DDS mx))= loggedc $ do
 parallelize f xs =  foldr (<|>) empty $ map f xs
 
 mparallelize f xs =  loggedc $ foldr (<>) mempty $ map f xs
-
-
-
 
 
 getPartitionData :: Loggable a => PartRef a   -> TransIO  a
@@ -443,7 +440,9 @@ getUrl partitioner url= DDS $ do
                         body <- liftIO $  getResponseBody r
                         let xs = partitioner body
                             size= case length xs `div` lnodes of 0 ->1 ; n -> n
-                            xss= Transient.MapReduce.fromList $ take size $ drop  (i *  size) xs
+                            xss= Transient.MapReduce.fromList $
+                                  if i== lnodes-1 then drop (i* size) xs else  take size $ drop  (i *  size) xs
+     
                         generateRef  xss
 
 
@@ -461,10 +460,15 @@ getFile partitioner file= DDS $ do
    parallelize  (process lnodes) $ zip nodes [0..lnodes-1]    -- !> show xss
    where
    process lnodes (node, i)=  runAt node $ local $ do
-                        content <- liftIO $ readFile file
-                        let xs = partitioner content
+                        content <-  do
+                              c <- liftIO $ readFile file
+                              length c `seq` return c
+                        let xs = partitioner  content
+                        
                             size= case length xs `div` lnodes of 0 ->1 ; n -> n
-                            xss=Transient.MapReduce.fromList $ take size $ drop  (i *  size) xs  -- !> size
+                            xss= Transient.MapReduce.fromList $
+                                   if i== lnodes-1 then drop (i* size) xs else  take size $ drop  (i *  size) xs
+     
                         generateRef    xss
 
 

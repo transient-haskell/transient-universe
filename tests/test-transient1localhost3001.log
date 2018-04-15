@@ -1,0 +1,9 @@
+Enter  "ps"	to: show threads
+Enter  "log"	to: inspect the log of a thread
+Enter  "end"	to: exit
+Enter  "start"	to: re/start node
+Executing: "start/localhost/3001"
+
+option: "start"
+hostname of this node. (Must be reachable)? "localhost"
+port to listen? 3001

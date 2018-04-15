@@ -19,14 +19,17 @@ import Control.Exception hiding (onException)
 import System.CPUTime
 -- -- opcion reactiva= parameter= EVar o mailbox
 
--- data Parameter=  Parameter String Int
+-- TODO: associate parameters to the hierarchy of threads
+--       optimize a branch, not the whole program
+-- TODO: Not only Int values
 
 parameters= unsafePerformIO $  newIORef  $ M.empty 
 
--- | Parameters change along the execution and are read bu the application to modify his behaviour. `optimize`change the parameters in order
+-- | Parameters can be changed during the execution and are read by the application to modify his behaviour. `optimize`change the parameters in order
 -- to maximize an expression defined by the programmer. this expression may include latency, troughput, memory usage etc.
 --
--- To optimize the function, it uses a monte-carlo method that `optimize` run permanently.
+-- To optimize the function, it uses a monte-carlo method that `optimize` a unser defined expression that 
+-- evaluate the performance.
 --
 -- Parameters can change buffer sizes, number of threads, number of instances. It depends on the programmer.
 setParameter ::  String  -> Int -> TransIO ()
@@ -53,7 +56,7 @@ getParameterNR n v= do
       Nothing -> addParameter n v >> return v
       Just v  -> return v
 
--- | it should be a single `optinize` call. it executes the optimization expression in a loop within a different thread.
+-- | it should be a single `optimize` call. it executes the optimization expression in a loop within a different thread.
 -- The next iteration will start as soon as the previous has finished so it is
 -- necessary to introduce a delay which may be variable and subject also to optimizations
 -- Take into acount that `getParameter` abort any previous subsequent task in order to execute the continuation witht he new parameter.
