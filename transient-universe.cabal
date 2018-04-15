@@ -9,7 +9,7 @@ homepage: https://github.com/transient-haskell/transient-universe
 bug-reports: https://github.com/transient-haskell/transient-universe/issues
 synopsis: Remote execution and map-reduce: distributed computing for Transient
 description:
-    See <http://github.com/agocorona/transient>.
+    See <http://github.com/transient-haskell/transient>.
 category: Control, Distributed Computing
 author: Alberto G. Corona
 extra-source-files:
@@ -19,7 +19,7 @@ extra-source-files:
 
 source-repository head
     type: git
-    location: https://github.com/agocorona/transient-universe
+    location: https://github.com/transient-haskell/transient-universe
 
 library
 

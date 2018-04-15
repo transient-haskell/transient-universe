@@ -15,6 +15,26 @@ The primitives that perform the moving of computations are called `wormhole` and
 
 All the nodes run the same program compiled for different architectures. It defines a Cloud computation (monad). It is a thin layer on top of transient with additional primitives and services that run a single program in one or many nodes.
 
+Example:
+=======
+
+```haskell
+main= keep . initNode $ inputNodes <|> mypPogram
+
+myProgram :: Cloud ()
+myProgram= do
+    nodes <- local getNodes
+    guard $ length nodes > 1
+    let node2= nodes !! 1
+    r <- runAt node2 . local $ waitEvents getLine
+    localIO $ print r
+    
+```
+
+This program will stream and print any text that you input in the console of the node 2.
+
+To know how to initialize the nodes, see the section of the  [Tutorial](https://github.com/transient-haskell/transient/wiki/Transient-tutorial#command-line-input)
+
 Browser integration
 ==================
 
@@ -22,7 +42,7 @@ Browser nodes, running transient programs compiled with ghcjs are integrated wit
 
 Distributed Browser/server Widgets
 -------
-Browser nodes can integrate Hplayground for ghcjs, a reactive client side library based in trasient (package axiom) they can create widgets with HTML form elements and control the server nodes. A computation can move from browser to server and back at runtime despite the different architecture.
+Browser nodes can integrate a reactive client side library based in trasient (package  [axiom](https://github.com/transient-haskell/axiom)). These widgets can create widgets with HTML form elements and control the server nodes. A computation can move from browser to server and back despite the different architecture.
 
 Widgets with code running in browser and servers can compose with other widgets. A Browser node can gain access to many server nodes trough the  server that delivered the web application.
 
