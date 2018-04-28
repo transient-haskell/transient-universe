@@ -19,6 +19,10 @@ Example:
 =======
 
 ```haskell
+import Transient.Base
+import Transient.Move
+import Control.Monad
+
 main= keep . initNode $ inputNodes <|> mypPogram
 
 myProgram :: Cloud ()
@@ -43,6 +47,24 @@ Browser nodes, running transient programs compiled with ghcjs are integrated wit
 Distributed Browser/server Widgets
 -------
 Browser nodes can integrate a reactive client side library based in trasient (package  [axiom](https://github.com/transient-haskell/axiom)). These widgets can create widgets with HTML form elements and control the server nodes. A computation can move from browser to server and back despite the different architecture.
+
+This program will obtain a string from the browser, will send it to the server, which will return three responses wich will be presented in the browser:
+
+```haskell
+{-#LANGUAGE OverloadedStrings #-}
+import Transient.Base
+import Transient.Move
+import Transient.Indeterminism
+import GHCJS.HPlay.View
+
+main= keep . initNode $ inputNodes <|> myProgram
+
+myProgram :: Cloud ()
+myProgram=  do
+  name <- local $ render $ getString Nothing `fire` OnChange
+  r <- atRemote $ local $ choose $ take 3 $ repeat $ "hello "++ name
+  local $ render $ rawHtml $ h1 r
+```
 
 Widgets with code running in browser and servers can compose with other widgets. A Browser node can gain access to many server nodes trough the  server that delivered the web application.
 
