@@ -60,9 +60,9 @@ main= keep . initNode $ myProgram
 
 myProgram :: Cloud ()
 myProgram=  do
-  name <- local $ render $ getString Nothing `fire` OnChange
-  r <- atRemote $ local $ choose $ take 3 $ repeat $ "hello "++ name
-  local $ render $ rawHtml $ h1 r
+  name <- local . render $ getString Nothing `fire` OnChange
+  r <- atRemote . local . choose . take 3 . repeat $ "hello "++ name
+  local . render . rawHtml $ h1 r
 ```
 See the package Axiom for instructions about how to compile and run this program.
 
