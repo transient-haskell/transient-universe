@@ -19,7 +19,7 @@ Example:
 =======
 
 ```haskell
-main= keep . initNode $ inputNodes <|> mypPogram
+main= keep . initNode $ inputNodes <|> mypProgram
 
 myProgram :: Cloud ()
 myProgram= do

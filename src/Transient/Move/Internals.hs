@@ -102,7 +102,10 @@ import Data.String
 import System.Mem.StableName
 import Unsafe.Coerce
 
-
+{- TODO
+  timeout for closures: little smaller in sender than in receiver
+  autoFixClosure, so every send generates a new closure in order to make streaming faster.
+-}
 
 --import System.Random
 
@@ -216,7 +219,7 @@ onAll ::  TransIO a -> Cloud a
 onAll =  Cloud
 
 -- | only executes if the result is demanded. It is useful when the conputation result is only used in
--- the remote node, but it is not serializable.
+-- the remote node, but it is not serializable. All the state changes with `setData` `setState` etc. are lost
 lazy :: TransIO a -> Cloud a
 lazy mx= onAll $ getCont >>= \st -> Transient $
         return $ unsafePerformIO $  runStateT (runTrans mx) st >>=  return .fst
@@ -226,7 +229,7 @@ fixRemote mx= do
              r <- lazy mx
              fixClosure
              return r
-        
+
 -- | experimental: subsequent remote invocatioms will send logs to this closure. Therefore logs will be shorter. 
 --
 -- Also, non serializable statements before it will not be re-executed
@@ -300,11 +303,9 @@ callTo' node remoteProc=  do
 
 atRemote :: Loggable a => Cloud a -> Cloud a
 atRemote proc= loggedc' $ do
-     was <- lazy $ getSData <|> return NoRemote
      teleport                                              -- !> "teleport 1111"
-     r <- Cloud $ runCloud' proc  <** setData WasRemote
+     r <- Cloud $ runCloud' proc <** setData WasRemote
      teleport                                              -- !> "teleport 2222"
-     lazy $ setData was
      return r
 
 -- | Execute a computation in the node that initiated the connection. 
@@ -446,8 +447,7 @@ data CloudException = CloudException Node IdClosure   String deriving (Typeable,
 instance Exception CloudException 
 
 teleport ::   Cloud ()
-teleport =  local $ do
-  Transient $ do
+teleport =  local $ Transient $ do
      cont <- get
      Log rec log fulLog closLocal <- getData `onNothing` return (Log False [][] 0)
     
@@ -493,7 +493,6 @@ teleport =  local $ do
           runTrans $ msend conn $ SMore $ ClosureData closRemote closLocal tosend 
                                        !> ("teleport sending", SMore (unsafePerformIO $ readIORef $ remoteNode conn,closRemote,closLocal,tosend))
                                        !> "--------->------>---------->"
-                                      --  -- !> ("log",reverse fulLog)
  
   
           setData $ if (not calling) then  WasRemote else WasParallel  -- !> "SET WASPAraLLEL"
@@ -504,18 +503,8 @@ teleport =  local $ do
                                           -- it is recovering, therefore it will be the
                                           -- local, not remote
          return $ Just ()
-
-        --  code moved to reportBack
-        --  runTrans $ onException $ \(e :: SomeException) -> do 
-
-        --         Closure closRemote <- getData `onNothing` error "teleport: no closRemote"
-        --         node <- getMyNode
-        --         let msg= SError $ toException $ ErrorCall $  show $ show $ CloudException node closRemote   $ show e
-        --         msend conn msg  !> "MSEND"
-                
-                
              
-  return ()                           --  !> "TELEPORT remote"
+ -- return ()                           --  !> "TELEPORT remote"
 
 -- | forward exceptions to the calling node
 reportBack :: TransIO ()
@@ -759,7 +748,7 @@ getWebServerNode = liftIO $ do
 
 hsonmessage ::WebSocket -> (MessageEvent ->IO()) -> IO ()
 hsonmessage ws hscb= do
-  cb <- makeCallback MessageEvent hscb
+  cb <- makeCallback1 MessageEvent hscb
   js_onmessage ws cb
 
 foreign import javascript safe
@@ -773,14 +762,20 @@ foreign import javascript safe
 newtype OpenEvent = OpenEvent JSVal deriving Typeable
 hsopen ::  WebSocket -> (OpenEvent ->IO()) -> IO ()
 hsopen ws hscb= do
-   cb <- makeCallback OpenEvent hscb
+   cb <- makeCallback1 OpenEvent hscb
    js_open ws cb
 
-makeCallback :: (JSVal -> a) ->  (a -> IO ()) -> IO JSVal
+makeCallback1 :: (JSVal -> a) ->  (a -> IO ()) -> IO JSVal
 
-makeCallback f g = do
+makeCallback1 f g = do
    Callback cb <- CB.syncCallback1 CB.ContinueAsync (g . f)
    return cb
+
+-- makeCallback ::  IO () -> IO ()
+makeCallback f  = do
+  Callback cb <- CB.syncCallback CB.ContinueAsync  f
+  return cb
+   
 
 
 foreign import javascript safe
@@ -831,11 +826,6 @@ getWebServerNode = getNodes >>= return . head
 #endif
 
 
-
---release (Node h p rpool _) hand= liftIO $ do
-----    print "RELEASED"
---    atomicModifyIORef rpool $  \ hs -> (hand:hs,())
---      -- !!> "RELEASED"
 
 mclose :: Connection -> IO ()
 
@@ -890,7 +880,6 @@ mconnect  node'=  do
 
      setState conn
      setState parseContext
---     return () !> "CONNECTED AFTER TIMEOUT"
 
      -- write node connected in the connection
      liftIO $ writeIORef (remoteNode conn) $ Just node
@@ -1209,7 +1198,7 @@ listen  (node@(Node _   port _ _ )) = onAll $ do
    addNodes [node'] 
    
    mlog <- listenNew (fromIntegral port) conn  <|> listenResponses :: TransIO (StreamData NodeMSG)
-   return () !> mlog  
+   
    case mlog  of 
        SMore (RelayMSG _ _ _) -> relay mlog
        _                      -> execLog  mlog
@@ -1361,7 +1350,7 @@ listenNew port conn'=  do
                        ("POST",Just "application/x-www-form-urlencoded") -> do
                             len <- read <$> BC.unpack
                                         <$> (Transient $ return (lookup "Content-Length" headers))
-                            setData $ ParseContext (return mempty) $ BS.take len str
+                            setData $ ParseContext (return SDone) $ BS.take len str
 
                             postParams <- parsePostUrlEncoded  <|> return []
                             return $ log ++  [(Var . IDynamic $ postParams)]
@@ -1384,7 +1373,7 @@ listenNew port conn'=  do
 
                    let conn'= conn{connData= Just (Node2Web sconn)
                              , closChildren=chs}
-                   setState conn'    !> "WEBSOCKETS-----------------------------------------------"
+                   setState conn'    !> "WEBSOCKETS CONNECTION"
                    onException $ \(e :: SomeException) -> do
                             cutExceptions
                             liftIO $ putStr "listen websocket:" >> print e
@@ -1422,11 +1411,13 @@ listenNew port conn'=  do
       
       -- reverse proxy for urls that look like http://host:port/relay/otherhost/otherport
       proxy sclient method vers uri' = do
-        -- get host port
         let (host:port:_)=  split $ BC.unpack $ BC.drop 6 uri'
+        return () !> ("RELAY TO",host, port)
+        --liftIO $ threadDelay 1000000
         sserver <- liftIO $ connectTo' 4096 host $ PortNumber $ fromIntegral $ read port
-                       
+        return () !> "CONNECTED"
         rawHeaders <- getRawHeaders
+        return () !>  ("RAWHEADERS",rawHeaders)
         let uri= BS.fromStrict $ let d x= BC.tail $ BC.dropWhile (/= '/') x in d . d $ d uri'
         
         let sent=   method <> BS.pack " /" 
@@ -1434,6 +1425,7 @@ listenNew port conn'=  do
                            <> BS.cons ' ' vers 
                            <> BS.pack "\r\n" 
                            <> rawHeaders <> BS.pack "\r\n\r\n"
+        return () !> ("SENT",sent)
         liftIO $ SBSL.send  sserver sent
           -- Connection{connData=Just (Node2Node _ sclient _)} <- getState <|> error "proxy: no connection"
         cutExceptions
@@ -1448,7 +1440,7 @@ listenNew port conn'=  do
         send f t= async $ mapData f t
         mapData from to = do
             content <- recv from 4096 
-            -- return () !> (" proxy received ", content)
+            return () !> (" proxy received ", content)
             if not $ BC.null content 
               then sendAll to content >> mapData from to
               else finish
@@ -1621,7 +1613,7 @@ execLog  mlog =  Transient $ do
         Left except -> do
           setData $ Log True [] []
           --setData $ Closure closr
-          return () !> "THROWWWW1"
+          return () !> "Exception received from network"
           runTrans $ throwt except
           empty
         Right log -> do
@@ -1664,14 +1656,15 @@ execLog  mlog =  Transient $ do
                   let nlog= reverse log ++  fulLog
                   
                   setData $ Log True  log  nlog  hash
-                  setData $ Closure  closr
-                                              
+                  setData $ Closure  closr 
+                  setData NoRemote
+                  return () !>  "RUNCONTINUATION"
                   runContinuation cont ()
 
                 Left except -> do
                   setData $ Log True  []  []
                   --setData $ Closure  closr
-                  return () !> "THROWWWW2"
+                  return () !> "Exception received from the network"
                   runTrans $ throwt except) cont
               return Nothing
                             
@@ -1823,14 +1816,15 @@ getFirstLine=  (,,) <$> getMethod <*> (toStrict <$> getUri) <*> getVers
     getUri= parseString
     getVers= parseString
 
-getRawHeaders= dropSpaces >> parse (scan mempty)
+getRawHeaders=  dropSpaces >> parse (scan mempty)
   --  rs <- manyTill line (string "\r\n\r\n") 
   --  return $ BS.concat rs
   --  where
   --  line= parse cond
    where
    scan  res str
-       | "\r\n\r\n" `BS.isPrefixOf` str= (res, BS.drop 4 str)
+         
+       | "\r\n\r\n" `BS.isPrefixOf` str   = (res, BS.drop 4 str)
        | otherwise=  scan ( BS.snoc res $ BS.head str) $ BS.tail str 
   --  line= do
   --   dropSpaces
@@ -1860,9 +1854,13 @@ getHeaders =  manyTill paramPair  (string "\r\n\r\n")          -- !>  (method, u
   getParam= do
       dropSpaces
       r <- tTakeWhile (\x -> x /= ':' && not (endline x))
-      if BS.null r || r=="\r"  then  empty  else  dropChar >> return (toStrict r)
+      if BS.null r || r=="\r"  then  empty  else  anyChar >> return (toStrict r)
+      where
+      endline c= c== '\r' || c =='\n'
 
   getParamValue= toStrict <$> ( dropSpaces >> tTakeWhile  (\x -> not (endline x)))
+      where
+      endline c= c== '\r' || c =='\n'
 
 
 
