@@ -29,6 +29,7 @@ import Transient.EVars
 import Data.Typeable
 import Control.Applicative
 import System.IO.Error
+import System.Random
 
 #ifndef ghcjs_HOST_OS
 import Network
@@ -50,7 +51,6 @@ import qualified Data.ByteString.Lazy.Char8             as BS
 import           Network.Socket.ByteString              as SBS(sendMany,sendAll,recv)
 import qualified Network.Socket.ByteString.Lazy         as SBSL
 import           Data.CaseInsensitive(mk)
-import           Data.Char(isSpace)
 
 -- import System.Random
 
@@ -71,13 +71,10 @@ import           Data.JSString  (JSString(..), pack)
 
 
 import Control.Monad.State
--- import System.IO
 import Control.Exception hiding (onException,try)
 import Data.Maybe
 --import Data.Hashable
 
---import System.Directory
--- import Control.Monad
 
 import System.IO.Unsafe
 import Control.Concurrent.STM as STM
@@ -88,23 +85,13 @@ import qualified Data.Map as M
 import Data.List (nub,(\\)) -- ,find, insert)
 import Data.IORef
 
-
-
--- import System.IO
-
 import Control.Concurrent
-
-
-
--- import Data.Dynamic
-import Data.String
 
 import System.Mem.StableName
 import Unsafe.Coerce
 
 {- TODO
   timeout for closures: little smaller in sender than in receiver
-  autoFixClosure, so every send generates a new closure in order to make streaming faster.
 -}
 
 --import System.Random
@@ -128,7 +115,7 @@ instance Ord Node where
 
 -- The cloud monad is a thin layer over Transient in order to make sure that the type system
 -- forces the logging of intermediate results
-newtype Cloud a= Cloud {runCloud' ::TransIO a} deriving (Functor,Monoid,Applicative,Alternative, Monad, Num, Fractional, MonadState EventF)
+newtype Cloud a= Cloud {runCloud' ::TransIO a} deriving (AdditionalOperators,Functor,Monoid,Applicative,Alternative, Monad, Num, Fractional, MonadState EventF)
 
 
 
@@ -304,7 +291,8 @@ callTo' node remoteProc=  do
 atRemote :: Loggable a => Cloud a -> Cloud a
 atRemote proc= loggedc' $ do
      teleport                                              -- !> "teleport 1111"
-     r <- Cloud $ runCloud' proc <** setData WasRemote
+     delData NoRemote
+     r <-  Cloud $ runCloud' proc  <** setData WasRemote
      teleport                                              -- !> "teleport 2222"
      return r
 
@@ -373,7 +361,7 @@ unique f= do
 -- `teleport` uses this connection to translate the computation back and forth between the two nodes connected
 wormhole :: Loggable a => Node -> Cloud a -> Cloud a
 wormhole node (Cloud comp) = local $ Transient $ do
-  
+   return () !> "wormhole"
    moldconn <- getData :: StateIO (Maybe Connection)
    mclosure <- getData :: StateIO (Maybe Closure)
       -- when (isJust moldconn) . setState $ ParentConnection (fromJust moldconn) mclosure
@@ -383,11 +371,12 @@ wormhole node (Cloud comp) = local $ Transient $ do
 
    if not rec                                    
             then runTrans $ (do
+                    return () !> "NOT REC"
                     conn <-  mconnect node
                     liftIO $ writeIORef (remoteNode conn) $ Just node
-                    setData  conn{calling= True}
+                    setData  conn{synchronous= maybe False id $ fmap synchronous moldconn, calling= True}
                     
-                    setData $ (Closure 0 )
+                    setData $ Closure 0 
                     
                     comp )
                   <*** do
@@ -395,6 +384,7 @@ wormhole node (Cloud comp) = local $ Transient $ do
                        when (isJust mclosure) . setData $ fromJust mclosure
                     -- <** is not enough since comp may be reactive
             else do
+                    return () !> "YES REC"
                     let conn = fromMaybe (error "wormhole: no connection in remote node") moldconn
                     setData $ conn{calling= False}
                     runTrans $ comp
@@ -446,12 +436,42 @@ data CloudException = CloudException Node IdClosure   String deriving (Typeable,
 
 instance Exception CloudException 
 
-teleport ::   Cloud ()
-teleport =  local $ Transient $ do
+-- | set remote invocations synchronous
+-- this is necessary when data is transfered very fast from node to node in a stream non-deterministically
+-- in order to keep the continuation of the calling node unchanged ultil the arrival of the response
+-- since all the calls share a single continuation in the calling node.
+--
+-- If there is no response from the remote node, the streaming is interrupted
+--
+-- > main= keep $ initNode $  onBrowser $  do
+-- >  local $ setSynchronous True 
+-- >  line  <- local $  threads 0 $ choose[1..10::Int] 
+-- >  localIO $ print ("1",line)
+-- >  atRemote $ localIO $ print line 
+-- >  localIO $ print ("2", line) 
+
+setSynchronous :: Bool -> TransIO ()
+setSynchronous sync= do
+   modifyData'(\con -> con{synchronous=sync}) (error "setSynchronous: no communication data")
+   return ()
+
+-- set synchronous mode for remote calls within a cloud computation and also avoid unnecessary
+-- thread creation
+syncStream :: Cloud a -> Cloud a 
+syncStream proc=  do
+    sync <- local $ do
+      Connection{synchronous= synchronous} <- modifyData'(\con -> con{synchronous=True}) err 
+      return synchronous
+    Cloud $ threads 0 $ runCloud' proc <***  modifyData'(\con -> con{synchronous=sync})  err
+    where err= error "syncStream: no communication data"
+
+
+teleport :: Cloud ()
+teleport  =  local $ Transient $ do
      cont <- get
      Log rec log fulLog closLocal <- getData `onNothing` return (Log False [][] 0)
     
-     conn@Connection{connData=contype, localClosures= localClosures,calling= calling} <- getData
+     conn@Connection{connData=contype, synchronous=synchronous, localClosures= localClosures,calling= calling} <- getData
                              `onNothing` error "teleport: No connection defined: use wormhole"
      if not rec   -- !> ("teleport rec,loc fulLog=",rec,log,fulLog)
                   -- if is not recovering in the remote node then it is active
@@ -462,7 +482,7 @@ teleport =  local $ Transient $ do
 -- #ifndef ghcjs_HOST_OS
         case contype of
          Just Self ->  runTrans $ do
-               setData $ if (not calling) then WasRemote else WasParallel
+               -- setData  $ if (not calling) then WasRemote else WasParallel
                abduce   !> "SELF" -- call himself
                liftIO $ do
                   remote <- readIORef $ remoteNode conn
@@ -477,29 +497,36 @@ teleport =  local $ Transient $ do
           Closure closRemote  <- getData `onNothing`  return (Closure 0 )
           
 
-          return () !> ("TELEPORTTTTTTTTTT", closLocal)
          --set his own closure in his Node data
 
           -- closLocal  <-   liftIO $ randomRIO (0,1000000)
---          node <- runTrans getMyNode
           
 
           let tosend= reverse $ if closRemote==0 then fulLog     else log
           
-          liftIO $ modifyMVar_ localClosures $ \map -> return $ M.insert closLocal cont map
+          liftIO $ do 
+            map <- readMVar localClosures
+            let mr = M.lookup closLocal map
+            pair <- case mr of
+              Just (mvar,_) -> do when synchronous $ takeMVar mvar ; return (mvar,cont)
+              _ -> do mv <- newEmptyMVar; return (mv,cont)
+            modifyMVar_ localClosures $ \map ->  return $ M.insert closLocal pair map
+
+              -- let f  (_,cont) (mvar,_)=let x= (if synchronous then unsafePerformIO $ takeMVar mvar else ()) in x `seq` (mvar,cont)
+              -- modifyMVar_ localClosures $ \map -> return $ M.insertWith f closLocal (unsafePerformIO $ newEmptyMVar ,cont) map
           -- The log sent is in the order of execution. log is in reverse order
-          
+              
           -- send log with closure ids at head
           runTrans $ msend conn $ SMore $ ClosureData closRemote closLocal tosend 
                                        !> ("teleport sending", SMore (unsafePerformIO $ readIORef $ remoteNode conn,closRemote,closLocal,tosend))
                                        !> "--------->------>---------->"
  
   
-          setData $ if (not calling) then  WasRemote else WasParallel  -- !> "SET WASPAraLLEL"
+          -- setData $ if (not calling) then  WasRemote else WasParallel   !> "NOT CALLING"
           return Nothing
 
       else do
-         delData WasRemote                -- deleting wasremote in teleport
+        --  delData WasRemote                -- deleting wasremote in teleport
                                           -- it is recovering, therefore it will be the
                                           -- local, not remote
          return $ Just ()
@@ -539,11 +566,11 @@ putMailbox' :: (Typeable key, Ord key, Typeable val) =>  key -> val -> TransIO (
 putMailbox'  idbox dat= do
    let name= MailboxId idbox $ typeOf dat
    Connection{comEvent= mv} <- getData `onNothing` errorMailBox
-   mbs <- liftIO $ readIORef mv
+   mbs <- liftIO $ readIORef mv  !> "PUTMAILBOX"
    let mev =  M.lookup name mbs
    case mev of
      Nothing ->newMailbox name >> putMailbox' idbox dat
-     Just ev -> writeEVar ev $ unsafeCoerce dat
+     Just ev -> writeEVar ev $ unsafeCoerce dat !> "WRITE PUTMAILBOX"
 
 
 newMailbox :: MailboxId -> TransIO ()
@@ -567,7 +594,6 @@ getMailbox = getMailbox' (0 :: Int)
 getMailbox' :: (Typeable key, Ord key, Typeable val) => key -> TransIO val
 getMailbox' mboxid = x where
  x = do
-
    let name= MailboxId mboxid $ typeOf $ typeOf1 x
    Connection{comEvent= mv} <- getData `onNothing` errorMailBox
    mbs <- liftIO $ readIORef mv
@@ -631,18 +657,18 @@ callNodes op init proc= loggedc' $ do
 callNodes' nodes op init proc= loggedc' $ foldr op init $ map (\node -> runAt node proc) nodes
 -----
 #ifndef ghcjs_HOST_OS
-sendRaw (Connection _ _ _ (Just (Node2Web  sconn )) _ _ _ _ _ _) r=
+sendRaw (Connection _ _ _ (Just (Node2Web  sconn )) _ _ _ _ _ _ _) r=
       liftIO $   WS.sendTextData sconn  r                                --  !> ("NOde2Web",r)
 
-sendRaw (Connection _ _ _ (Just (Node2Node _ sock _)) _ _ blocked _ _ _) r=
+sendRaw (Connection _ _ _ (Just (Node2Node _ sock _)) _ _ blocked _ _ _ _) r=
       liftIO $  withMVar blocked $ const $  SBS.sendMany sock
                                       (BL.toChunks r )                   -- !> ("NOde2Node",r)
 
-sendRaw (Connection _ _ _(Just (TLSNode2Node  ctx )) _ _ blocked _ _ _) r=
+sendRaw (Connection _ _ _(Just (TLSNode2Node  ctx )) _ _ blocked _ _ _ _) r=
       liftIO $ withMVar blocked $ const $ sendTLSData ctx  r       --  !> ("TLNode2Web",r)
 
 #else
-sendRaw (Connection _ _ _ (Just (Web2Node sconn)) _ _ blocked _  _ _) r= liftIO $
+sendRaw (Connection _ _ _ (Just (Web2Node sconn)) _ _ blocked _  _ _ _) r= liftIO $
    withMVar blocked $ const $ JavaScript.Web.WebSocket.send   r sconn   -- !!> "MSEND SOCKET"
 #endif
 
@@ -655,29 +681,29 @@ data NodeMSG= ClosureData IdClosure IdClosure CurrentPointer
 
 msend ::  Connection -> StreamData NodeMSG -> TransIO ()
 
-msend (Connection _ _ _ (Just Self) _ _ _ _ _ _) r= return ()
+msend (Connection _ _ _ (Just Self) _ _ _ _ _ _ _) r= return ()
 
 #ifndef ghcjs_HOST_OS
 
 
-msend (Connection _ _ _ (Just (Node2Node _ sock _)) _ _ blocked _ _ _) r=do
+msend (Connection _ _ _ (Just (Node2Node _ sock _)) _ _ blocked _ _ _ _) r=do
    liftIO $   withMVar blocked $  const $ SBS.sendAll sock $ BC.pack (show r)   !> ("N2N SEND", r)
 
-msend (Connection _ _ _ (Just (TLSNode2Node ctx)) _ _ _ _ _ _) r=
+msend (Connection _ _ _ (Just (TLSNode2Node ctx)) _ _ _ _ _ _ _) r=
      liftIO $ sendTLSData  ctx $ BS.pack (show r)                              !> "TLS SEND"
 
 
-msend (Connection _ _ _ (Just (Node2Web sconn)) _ _ _ _ _ _) r=liftIO $
+msend (Connection _ _ _ (Just (Node2Web sconn)) _ _ _ _ _ _ _) r=liftIO $
   {-withMVar blocked $ const $ -} WS.sendTextData sconn $ BS.pack (show r)    !> "websockets send"
 
-msend(Connection _ myNode _ (Just (Relay conn remote )) _ _ _ _ _ _) r= do
+msend(Connection _ myNode _ (Just (Relay conn remote )) _ _ _ _ _ _ _) r= do
    origin <- liftIO $ readIORef myNode 
    msend conn $ SMore $ RelayMSG origin remote r
 
 
 #else
 
-msend (Connection _ _ remoten (Just (Web2Node sconn)) _ _ blocked _  _ _) r= liftIO $  do
+msend (Connection _ _ remoten (Just (Web2Node sconn)) _ _ blocked _  _ _ _) r= liftIO $  do
   -- when (js_readystate sconn /= 1) $ do  -- must try to reconnect
   --        Just node <- liftIO $ readIORef remoten
   --        ...
@@ -687,7 +713,7 @@ msend (Connection _ _ remoten (Just (Web2Node sconn)) _ _ blocked _  _ _) r= lif
 
 #endif
 
-msend (Connection _ _ _ Nothing _ _  _ _ _ _) _= error "msend out of connection context: use wormhole to connect"
+msend (Connection _ _ _ Nothing _ _  _ _ _ _ _) _= error "msend out of connection context: use wormhole to connect"
 
 
 
@@ -697,7 +723,7 @@ mread :: Loggable a => Connection -> TransIO (StreamData a)
 #ifdef ghcjs_HOST_OS
 
 
-mread (Connection _ _ _ (Just (Web2Node sconn)) _ _ _ _  _ _)=  wsRead sconn
+mread (Connection _ _ _ (Just (Web2Node sconn)) _ _ _ _  _ _ _)=  wsRead sconn
 
 
 
@@ -783,20 +809,20 @@ foreign import javascript safe
 
 
 #else
-mread (Connection _ _ _ (Just (Node2Node _ _ _)) _ _ _ _ _ _) =  parallelReadHandler -- !> "mread"
+mread (Connection _ _ _ (Just (Node2Node _ _ _)) _ _ _ _ _ _ _) =  parallelReadHandler -- !> "mread"
 
-mread (Connection _ _ _ (Just (TLSNode2Node _ )) _ _ _ _ _ _) =  parallelReadHandler
+mread (Connection _ _ _ (Just (TLSNode2Node _ )) _ _ _ _ _ _ _) =  parallelReadHandler
 --        parallel $ do
 --            s <- recvTLSData  ctx
 --            return . read' $  BC.unpack s
 
-mread (Connection _ _ _  (Just (Node2Web sconn )) _ _ _ _ _ _)=
+mread (Connection _ _ _  (Just (Node2Web sconn )) _ _ _ _ _ _ _)=
         parallel $ do
             s <- WS.receiveData sconn
             return . read' $  BS.unpack s
                 !>  ("WS MREAD RECEIVED ----<----<------<--------", s)
 
-mread (Connection  _ _ _ (Just (Relay conn _  )) _ _ _ _ _ _)=  
+mread (Connection  _ _ _ (Just (Relay conn _  )) _ _ _ _ _ _ _)=  
      mread conn  -- !> "MREAD RELAY"
        
 
@@ -832,16 +858,16 @@ mclose :: Connection -> IO ()
 #ifndef ghcjs_HOST_OS
 
 mclose (Connection _ _ _
-   (Just (Node2Node _  sock _ )) _ _ _ _ _ _)= NS.close sock
+   (Just (Node2Node _  sock _ )) _ _ _ _ _ _ _)= NS.close sock
 
 mclose (Connection _ _ _
    (Just (Node2Web sconn ))
-   _ _ _ _  _ _)=
+   _ _ _ _  _ _ _)=
     WS.sendClose sconn ("closemsg" :: BS.ByteString)
 
 #else
 
-mclose (Connection _ _ _ (Just (Web2Node sconn)) _ _ blocked _ _ _)=
+mclose (Connection _ _ _ (Just (Web2Node sconn)) _ _ blocked _ _ _ _)=
     JavaScript.Web.WebSocket.close Nothing Nothing sconn
 
 #endif
@@ -863,8 +889,7 @@ mconnect  node'=  do
                   delData $ Closure undefined
                   return  handle
                                                            !>   ("REUSED!", node)
-
-        _ -> mconnect1 node'                                 
+        _ -> mconnect1 node                                 
   where
 
 
@@ -902,7 +927,7 @@ mconnect  node'=  do
           conn<- case connection node of
              Nothing    -> error "checkSelf error"
              Just ref   ->  do
-                 cnn <- getSData <|> error "chechself: no connection"
+                 cnn <- getSData <|> error "checkself: no connection"
                  rnode  <- liftIO $ newIORef node
                  conn   <- defConnection >>= \c -> return c{myNode= rnode, comEvent=comEvent cnn,connData= Just Self} !> "DEFF1"
                  liftIO $ withMVar ref $ const $ return [conn]
@@ -1051,8 +1076,14 @@ instance Exception ConnectionError
 -- mconnect _ = empty
 
 
+   
 
 #ifndef ghcjs_HOST_OS
+close1 sock= do
+  print "CLOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOSW"
+  NS.setSocketOption sock NS.Linger 0
+  NS.close sock
+
 connectTo' bufSize hostname (PortNumber port) =  do
         proto <- BSD.getProtocolNumber "tcp"
         bracketOnError
@@ -1061,6 +1092,9 @@ connectTo' bufSize hostname (PortNumber port) =  do
             (\sock -> do
               NS.setSocketOption sock NS.RecvBuffer bufSize
               NS.setSocketOption sock NS.SendBuffer bufSize
+ 
+
+
 --              NS.setSocketOption sock NS.SendTimeOut 1000000  !> ("CONNECT",port)
 
               he <- BSD.getHostByName hostname
@@ -1125,8 +1159,9 @@ data Connection= Connection{idConn     :: Int
                            -- multiple wormhole/teleport use the same connection concurrently
                            ,blocked    :: Blocked
                            ,calling    :: Bool
+                           ,synchronous :: Bool
                            -- local localClosures with his log and his continuation
-                           ,localClosures   :: MVar (M.Map IdClosure  EventF)
+                           ,localClosures   :: MVar (M.Map IdClosure  (MVar (),EventF))
 
                            -- for each remote closure that points to local closure 0,
                            -- a new container of child processes
@@ -1155,10 +1190,10 @@ defConnection =  do
     x <- newMVar ()
     y <- newMVar M.empty
     noremote <- newIORef Nothing
-    z <-  return $ error "closchildren: newIORef M.empty"
+    z <-   newIORef M.empty
     return $ Connection idc my noremote Nothing  8192
                   (error "defConnection: accessing network events out of listen")
-                  x  False y z
+                  x  False False y z
 
 
 
@@ -1173,12 +1208,12 @@ getBuffSize=
   (do getSData >>= return . bufferSize) <|> return  8192
 
 
-
-
 -- | Setup the node to start listening for incoming connections.
 --
 listen ::  Node ->  Cloud ()
 listen  (node@(Node _   port _ _ )) = onAll $ do
+   
+
    addThreads 1
    
    setData $ Log False [] [] 0
@@ -1196,16 +1231,14 @@ listen  (node@(Node _   port _ _ )) = onAll $ do
    liftIO $ modifyMVar_ (fromJust $ connection node') $ const $ return [conn]
 
    addNodes [node'] 
-   
-   mlog <- listenNew (fromIntegral port) conn  <|> listenResponses :: TransIO (StreamData NodeMSG)
+
+   mlog <- listenNew (fromIntegral port) conn   <|> listenResponses :: TransIO (StreamData NodeMSG)
    
    case mlog  of 
        SMore (RelayMSG _ _ _) -> relay mlog
        _                      -> execLog  mlog
- `catcht` (\(e ::SomeException) -> liftIO $ print  e)
 
 
--- relayService :: TransIO ()
 
 relay (SMore (RelayMSG origin destiny streamdata)) = do
   nodes <- getNodes
@@ -1226,23 +1259,7 @@ relay (SMore (RelayMSG origin destiny streamdata)) = do
        execLog streamdata 
        
     else do
-          -- search local node name if hostname is the same 
 
-          -- let destiny' = if nodeHost destiny== nodeHost my 
-          --       then
-          --           case filter (==destiny) nodes  of 
-          --               [node]  -> case lookup "localNode" $ nodeServices node   of
-          --                   Just snode ->  read snode 
-          --                   Nothing -> destiny
-          --               _ -> destiny
-          --       else destiny
-          -- let origin'=  if nodeHost origin == "localhost" 
-          --          then case filter (==origin) nodes of 
-          --               [node]  ->case lookup "externalNode" $ nodeServices node of
-          --                            Just snode -> read snode
-          --                            Nothing -> origin 
-          --               _ -> origin
-          --       else origin 
 
           let (origin',destiny')= nat  origin destiny  my nodes
           con <- mconnect destiny'
@@ -1273,16 +1290,21 @@ nat  origin destiny  my nodes=
 
 -- listen incoming requests
 listenNew port conn'=  do
-   
+
+
+
 
    sock <- liftIO . listenOn $ PortNumber port
 
-   let bufSize= bufferSize conn'
-   liftIO $ do NS.setSocketOption sock NS.RecvBuffer bufSize
-               NS.setSocketOption sock NS.SendBuffer bufSize
+  
+   liftIO $ do
+      let bufSize= bufferSize conn'
+      NS.setSocketOption sock NS.RecvBuffer bufSize
+      NS.setSocketOption sock NS.SendBuffer bufSize
 
    -- wait for connections. One thread per connection
    (sock,addr) <- waitEvents $ NS.accept sock
+   
    chs <- liftIO $ newIORef M.empty
 --   case addr of
 --     NS.SockAddrInet port host -> liftIO $ print("connection from", port, host)
@@ -1293,27 +1315,27 @@ listenNew port conn'=  do
 
    input <-  liftIO $ SBSL.getContents sock
 
-   cutExceptions
-   
-   onException $ \(e :: IOException) -> 
-          when (ioeGetLocation e=="Network.Socket.recvBuf") $ do
-             liftIO $ putStr "listen: " >> print e
+   -- cutExceptions
+
+  --  onException $ \(e :: IOException) -> 
+  --         when (ioeGetLocation e=="Network.Socket.recvBuf") $ do
+  --            liftIO $ putStr "listen: " >> print e
              
-             let Connection{remoteNode=rnode,localClosures=localClosures,closChildren= rmap} = conn
-             -- TODO How to close Connection by discriminating exceptions
-             mnode <- liftIO $ readIORef rnode
-             case mnode of
-               Nothing -> return ()
-               Just node  -> do
-                             liftIO $ putStr "removing1 node: " >> print node
-                             nodes <- getNodes
-                             setNodes $ nodes \\ [node]
-             liftIO $ do
-                  modifyMVar_ localClosures $ const $ return M.empty
-                  writeIORef rmap M.empty
-             -- topState >>= showThreads
+  --            let Connection{remoteNode=rnode,localClosures=localClosures,closChildren= rmap} = conn
+  --            -- TODO How to close Connection by discriminating exceptions
+  --            mnode <- liftIO $ readIORef rnode
+  --            case mnode of
+  --              Nothing -> return ()
+  --              Just node  -> do
+  --                            liftIO $ putStr "removing1 node: " >> print node
+  --                            nodes <- getNodes
+  --                            setNodes $ nodes \\ [node]
+  --            liftIO $ do
+  --                 modifyMVar_ localClosures $ const $ return M.empty
+  --                 writeIORef rmap M.empty
+  --            -- topState >>= showThreads
             
-             killBranch
+  --            killBranch
              
 
    setData $ (ParseContext (NS.close sock >> error "Communication error" ) input
@@ -1335,7 +1357,7 @@ listenNew port conn'=  do
 
            mread conn
 
-     _ -> do
+     _ -> do   
            let uri'= BC.tail $ uriPath uri !> uriPath uri
            if  "api/" `BC.isPrefixOf` uri'
              then do
@@ -1363,26 +1385,33 @@ listenNew port conn'=  do
                 
              else do
                    headers <- getHeaders
+                   maybeSetHost headers
+
                    return () !> (method,uri')
                    -- stay serving pages until a websocket request is received
                    servePages (method, uri', headers)
-                   conn <- getSData
+                   conn <- getSData 
                    sconn <- makeWebsocketConnection conn uri headers
                    -- websockets mode
-
+                   rem <- liftIO $ newIORef Nothing
+                   chs <- liftIO $ newIORef M.empty
+                   cls <- liftIO $ newMVar M.empty
+                   cme <- liftIO $ newIORef M.empty
 
                    let conn'= conn{connData= Just (Node2Web sconn)
-                             , closChildren=chs}
+                             , closChildren=chs,localClosures=cls, remoteNode=rem} --,comEvent=cme}
                    setState conn'    !> "WEBSOCKETS CONNECTION"
-                   onException $ \(e :: SomeException) -> do
-                            cutExceptions
-                            liftIO $ putStr "listen websocket:" >> print e
-                            --liftIO $ mclose conn'
-                            killBranch
-                            empty
+
 --                   async (return (SMore (0,0,[Exec]))) <|> do
                    do
---                     return ()                                                   !> "WEBSOCKET"
+--                     return ()                  !> "WEBSOCKET"
+                    --  onException $ \(e :: SomeException) -> do
+                    --     liftIO $ putStr "listen websocket:" >> print e
+                    --     -- liftIO $ mclose conn'
+                    --     -- killBranch
+                    --     -- empty
+                     ex <- exceptionPoint :: TransIO (BackPoint SomeException)
+                     setData ex
                      r <-  parallel $ do
                              msg <- WS.receiveData sconn
                              return ()   !> ("Server WebSocket msg read",msg)
@@ -1398,7 +1427,6 @@ listenNew port conn'=  do
                        SError e -> do
 --                           liftIO $ WS.sendClose sconn ("error" :: BS.ByteString)
                            back e
---                                                                 !> "FINISH1"
                        _ -> return r
 
      where
@@ -1428,11 +1456,11 @@ listenNew port conn'=  do
         return () !> ("SENT",sent)
         liftIO $ SBSL.send  sserver sent
           -- Connection{connData=Just (Node2Node _ sclient _)} <- getState <|> error "proxy: no connection"
-        cutExceptions
         onException $ \(e:: SomeException ) -> liftIO $ do 
                             putStr "Proxy: " >> print e
                             sClose sserver
                             sClose sclient
+                            empty
 
         send sclient sserver <|> send sserver sclient
         empty
@@ -1500,16 +1528,17 @@ listenResponses= do
 
 
 
-      cutExceptions
-      onException (\(e:: SomeException) -> do
-        liftIO $ putStr "ListenResponses: " >> print e
-        liftIO $ putStr "removing node: " >> print node
-        nodes <- getNodes
-        setNodes $ nodes \\ [node]
-      --  topState >>= showThreads
-        killChilds
-        let Connection{localClosures=localClosures}= conn
-        liftIO $ modifyMVar_ localClosures $ const $ return M.empty)
+      -- cutExceptions
+      onException $ \(e:: SomeException) -> do
+          liftIO $ putStr "ListenResponses: " >> print e
+          liftIO $ putStr "removing node: " >> print node
+          nodes <- getNodes
+          setNodes $ nodes \\ [node]
+          --  topState >>= showThreads
+          killChilds
+          let Connection{localClosures=localClosures}= conn
+          liftIO $ modifyMVar_ localClosures $ const $ return M.empty
+          empty
 
 
       mread conn
@@ -1581,7 +1610,7 @@ manageClosures =   do
       mcont <- liftIO $ modifyMVar localClosures $ \map -> return ( M.delete clos map,  M.lookup clos map)
       case mcont of
         Nothing -> error $ "closure not found: " ++ show clos
-        Just cont -> do 
+        Just (_,cont) -> do 
                         showThreads $  fromJust $ parent cont
                         liftIO $ killBranch' cont   
                         return ()
@@ -1604,7 +1633,6 @@ execLog  mlog =  Transient $ do
              SDone   -> runTrans(back $ ErrorCall "SDone") >> return Nothing   -- TODO remove closure?
              SMore (ClosureData closl closr  log) -> process closl closr  (Right log) False
              SLast (ClosureData closl closr  log) -> process closl closr  (Right log) True
-  -- !> ("EXECLOG",mlog)
    where
    process :: IdClosure -> IdClosure  -> (Either CloudException CurrentPointer) -> Bool -> StateIO (Maybe ())
    process  closl closr  mlog  deleteClosure= do
@@ -1624,13 +1652,12 @@ execLog  mlog =  Transient $ do
            
            return $ Just ()                  --  !> "executing top level closure"
        else do
-
          mcont <- liftIO $ modifyMVar localClosures
                          $ \map -> return (if deleteClosure then
                                            M.delete closl map
                                          else map, M.lookup closl map)
                                            -- !> ("localClosures=", M.size map)
-         case mcont of
+         case mcont !> ("MCONT",isJust mcont)  of
            Nothing -> do
 --
 --              if closl == 0   -- add what is after execLog as closure 0
@@ -1648,7 +1675,9 @@ execLog  mlog =  Transient $ do
                      runTrans $ liftIO $ error ("request received for non existent closure: "
                                              ++  show closl)
            -- execute the closure
-           Just cont -> do  -- remove fulLog?
+           Just (mv,cont) -> do 
+              return () !> "JUST"
+              liftIO $ tryPutMVar mv () 
               liftIO $ runStateT (case mlog of
                 Right log -> do
                   Log _ _ fulLog hash <- getData `onNothing` return (Log True [] [] 0)
@@ -1817,10 +1846,7 @@ getFirstLine=  (,,) <$> getMethod <*> (toStrict <$> getUri) <*> getVers
     getVers= parseString
 
 getRawHeaders=  dropSpaces >> parse (scan mempty)
-  --  rs <- manyTill line (string "\r\n\r\n") 
-  --  return $ BS.concat rs
-  --  where
-  --  line= parse cond
+
    where
    scan  res str
          
@@ -1898,7 +1924,8 @@ createNode h p= createNodeServ h p []
 createWebNode :: IO Node
 createWebNode= do
   pool <- emptyPool
-  return $ Node "webnode"  0 (Just pool)  [("webnode","")]
+  port <- randomIO
+  return $ Node "webnode"  port (Just pool)  [("webnode","")]
 
 
 instance Eq Node where
@@ -1941,7 +1968,7 @@ getNodes :: MonadIO m => m [Node]
 getNodes  = liftIO $ atomically $ readTVar  nodeList
 
 -- getEqualNodes= getNodes 
-
+-- | get the nodes that have the same service definition that the calling node
 getEqualNodes = do
     nodes <- getNodes
     let srv= nodeServices $ head nodes
@@ -1961,6 +1988,10 @@ addNodes   nodes=  do
   liftIO . atomically $ do
     prevnodes <- readTVar nodeList
     writeTVar nodeList $  nub $ prevnodes ++ nodes'
+
+delNodes nodes= liftIO $ atomically $ do
+  nodes' <-  readTVar nodeList
+  writeTVar nodeList $ nodes \\ nodes'
 
 fixNode n= case connection n of
   Nothing -> do
@@ -2004,16 +2035,17 @@ shuffleNodes=  liftIO . atomically $ do
 --       in [(NS.SockAddrInet port (IP.toHostAddress $  read s'),r)]
 -- #endif
 
---newtype MyNode= MyNode Node deriving(Read,Show,Typeable)
-
-
---instance Indexable MyNode where key (MyNode Node{nodePort=port}) =  "MyNode "++ show port
---
---instance Serializable MyNode where
---    serialize= BS.pack . show
---    deserialize= read . BS.unpack
-
-
+-- | add this node to the list of know nodes in the remote node connected by a `wormhole`
+addThisNodeToRemote= do
+    n <- local getMyNode
+    atRemote $ local $ do
+      n' <- setConnectionIn n
+      addNodes [n']
+    
+setConnectionIn node=do 
+    conn <- getState <|> error "addThisNodeToRemote: connection not found"
+    ref <- liftIO $ newMVar [conn]
+    return node{connection=Just ref}
 
 -- | Add a node (first parameter) to the cluster using a node that is already
 -- part of the cluster (second parameter).  The added node starts listening for

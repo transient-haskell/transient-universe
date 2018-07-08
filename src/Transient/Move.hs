@@ -58,7 +58,7 @@ Service(), createNodeServ, createNode, createWebNode,
 -- ** Joining the cluster
 Transient.Move.Internals.connect, connect', listen,
 -- Low level APIs
-addNodes, shuffleNodes,
+addNodes, addThisNodeToRemote, shuffleNodes,
 --Connection(..), ConnectionData(..), defConnection,
 
 -- ** Querying nodes
@@ -72,7 +72,7 @@ local, onAll, lazy, fixRemote, loggedc, lliftIO, localIO, fullStop,
 wormhole, teleport, copyData, fixClosure,
 
 -- * Running at a Remote Node
-beamTo, forkTo, callTo, runAt, atRemote,
+beamTo, forkTo, callTo, runAt, atRemote, setSynchronous, syncStream,
 
 -- * Running at Multiple Nodes
 clustered, mclustered, callNodes,

@@ -23,8 +23,9 @@ import Control.Applicative
 import Control.Monad.State
 import Data.IORef
 import System.Environment
+import Data.List((\\))
 
-
+import Control.Exception hiding(onException)
 
 -- | ask in the console for the port number and initializes a node in the port specified
 -- It needs the application to be initialized with `keep` to get input from the user.
@@ -137,10 +138,11 @@ simpleWebApp port app = do
    keep $ initWebApp node app
    return ()
 
--- | use this instead of smpleWebApp when you have to do some initializations in the server prior to the
+-- | use this instead of simpleWebApp when you have to do some initializations in the server prior to the
 -- initialization of the web server
 initWebApp :: Loggable a => Node -> Cloud a -> TransIO a
 initWebApp node app=  do
+
     conn <- defConnection
     liftIO $ writeIORef (myNode conn)  node
     addNodes  [node]
@@ -149,7 +151,9 @@ initWebApp node app=  do
     mynode <- if isBrowserInstance
                     then liftIO $ createWebNode
                     else return serverNode
-    runCloud $ do
+
+
+    runCloud' $ do
         listen mynode <|> return()
         wormhole serverNode  app  
 
@@ -184,6 +188,15 @@ atServer x= do
 -- | run N nodes (N ports to listen) in the same program. For testing purposes.
 -- It add them to the list of known nodes, so it is possible to perform `clustered` operations with them.
 runTestNodes ports= do
-    nodes <- onAll $  mapM (\p -> liftIO $ createNode "localhost" p) ports
-    foldl (<|>) empty (map listen nodes) <|> return()
+    nodes <- onAll $ mapM (\p -> liftIO $ createNode "localhost" p) ports
+    onAll $ addNodes nodes
+    foldl (<|>) empty (map listen1 nodes) <|> return()
+    where 
+    listen1 n= do
+      listen n
+      onAll $ do
+        ns <- getNodes
+        addNodes $ n: (ns \\[n])
+        conn <- getState <|> error "runTestNodes error"
+        liftIO $ writeIORef (myNode conn)  n
 

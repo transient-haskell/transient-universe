@@ -10,7 +10,7 @@ import           Data.Monoid
 import           Transient.Base
 import           Transient.Internals
 import           Transient.Indeterminism
-import           Transient.Move
+import           Transient.Move.Internals
 import           Transient.Move.Utils
 import           Transient.Move.Services
 import           Transient.MapReduce
@@ -55,6 +55,14 @@ test=  initNodeServ service  "localhost" 8080 $ do
 
           local ( option "f" "fire")   <|> return ""       -- to repeat the test,  remove exit
 
+        --   localIO $ putStrLn "------checking  empy in remote node--------"
+        --   r <- runAt node1 $ do
+        --        shouldRun node1
+        --        runAt node2 $ (do
+        --          shouldRun node2
+        --          empty ) <|>  (return "hello")
+        --   localIO $ print r
+        --   empty
 
           localIO $ putStrLn "------checking Alternative distributed--------"
           r <- local $   collect 3 $
@@ -62,7 +70,7 @@ test=  initNodeServ service  "localhost" 8080 $ do
                          <|>  (runAt node1 (shouldRun( node1) >> return "world" ))
                          <|>  (runAt node2 (shouldRun( node2) >> return "world2" ))
 
-          assert(sort r== ["hello", "world","world2"]) $ localIO $  print r
+         
           
           localIO $ putStrLn "--------------checking Applicative distributed--------"
           r <- loggedc $(runAt node0 (shouldRun( node0) >> return "hello "))

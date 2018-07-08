@@ -39,6 +39,8 @@ monitorService= [("service","monitor")
 
 monitorPort= 3000
 
+-- | initService search for a node in the list of nodes that the local node may know, instead of calling
+-- the monitor. if there is no such node, it call requestInstance. `initService` is used by `callService`
 initService :: String -> Service -> Cloud Node
 initService ident service=
     cached <|> installIt
@@ -50,6 +52,12 @@ initService ident service=
     installIt= do
         ns <- requestInstance ident service 1 
         if null ns then empty else return $ head ns
+
+-- |  receives the specification of a service and install (if necessary) and run it (if necessary)
+--    if the service is running, it return the node immediately.
+-- if the monitor service executable is not running `requestInstace` initiates it.
+-- Instances are provisioned  among the available nodes
+-- The returned nodes are added to the list of known nodes.
 
 requestInstance :: String -> Service -> Int -> Cloud [Node]
 requestInstance ident service num=  loggedc $ do
@@ -149,7 +157,8 @@ authorizeService ident service=   do
   where
   notElem a b= not $ elem a b
 
-
+-- | call a service. If the service is not running in some node, the monitor service would install
+-- and run it. The first parameter is a weak password.
 callService
     :: (Loggable a, Loggable b)
     => String -> Service -> a  -> Cloud b

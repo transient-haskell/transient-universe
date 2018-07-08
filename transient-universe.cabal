@@ -48,6 +48,7 @@ library
             process -any,
             random -any,
             text -any
+            
 
     exposed-modules:
         Transient.Move
@@ -112,6 +113,7 @@ executable test-transient1
             network-uri -any,
             case-insensitive -any,
             hashable -any
+            
     main-is: TestSuite.hs
     build-depends:
         base >4
