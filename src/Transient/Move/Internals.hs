@@ -291,10 +291,14 @@ callTo' node remoteProc=  do
 atRemote :: Loggable a => Cloud a -> Cloud a
 atRemote proc= loggedc' $ do
      teleport                                              -- !> "teleport 1111"
-     delData NoRemote
-     r <-  Cloud $ runCloud' proc  <** setData WasRemote
+     modifyData' f1 NoRemote
+     r <-  loggedc $ proc  <** setData WasRemote
      teleport                                              -- !> "teleport 2222"
+     -- Cloud $ delData WasRemote
      return r
+     where
+     f1 WasParallel= WasParallel
+     f1 _= NoRemote
 
 -- | Execute a computation in the node that initiated the connection. 
 --
