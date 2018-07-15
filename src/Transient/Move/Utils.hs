@@ -87,7 +87,16 @@ initNodeServ services host port app= do
         if null args then liftIO $ createNode host port else empty
 
 -- | ask for nodes to be added to the list of known nodes. it also ask to connect to the node to get
--- his list of known nodes. It returns empty
+-- his list of known nodes. It returns empty.
+-- to input a node, enter "add" then the host and the port, the service description (if any) and "y" or "n"
+-- to either connect to that node and synchronize their lists of nodes or not.
+--
+-- A typical sequence of initiation of an application that includes `initNode` and `inputNodes` is:
+--
+-- > program -p start/host/8000/add/host2/8001/n/add/host3/8005/y
+--
+-- "start/host/8000" is read by `initNode`. The rest is initiated by `inputNodes` in this case two nodes are added.
+-- the first of the two is not connected to synchronize their list of nodes. The second does.
 inputNodes :: Cloud empty
 inputNodes= onServer $ do 
   --local abduce
