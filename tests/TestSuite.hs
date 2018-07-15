@@ -23,7 +23,7 @@ import           Control.Exception
 -- #define _UPK_(x) {-# UNPACK #-} !(x)
 
 
-shouldRun x=  local $ getMyNode >>= \p -> assert ( p == (x)) (return ())
+shouldRun x=  local $ getMyNode >>= \p ->  assert ( p == (x)) (liftIO $ print p)
 
 service= [("service","test suite")
          ,("executable", "test-transient1")
@@ -53,16 +53,14 @@ test=  initNodeServ service  "localhost" 8080 $ do
           [node1, node2] <- requestInstance "PIN1" service 2
  
 
-          local ( option "f" "fire")   <|> return ""       -- to repeat the test,  remove exit
+          local ( option "f" "fire")   <|> return ""       -- to repeat the tests,  remove the "exit" at the end 
 
-        --   localIO $ putStrLn "------checking  empy in remote node--------"
-        --   r <- runAt node1 $ do
-        --        shouldRun node1
-        --        runAt node2 $ (do
-        --          shouldRun node2
-        --          empty ) <|>  (return "hello")
-        --   localIO $ print r
-        --   empty
+          localIO $ putStrLn "------checking  empty in remote node when the remote call back the caller #46 --------"
+          r <- runAt node1 $ do
+               shouldRun node1
+               runAt node2 $  (runAt node1 $ shouldRun node1 >> empty ) <|>  (shouldRun node2 >> return "world")
+          localIO $ print r
+          
 
           localIO $ putStrLn "------checking Alternative distributed--------"
           r <- local $   collect 3 $
