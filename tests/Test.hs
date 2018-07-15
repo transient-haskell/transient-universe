@@ -12,16 +12,28 @@ import Control.Exception
 import GHC.Conc
 import Control.Monad.State
 import Data.Maybe
+import System.Random
 import Control.Concurrent.MVar
 import qualified Data.Map as M
+import Data.Monoid
+
+
 main= keep $ runCloud' $ do
-    runTestNodes [2000..2002]
+    runTestNodes [2000..2020]
     local $ option  "f" "fire"
-    nodes <- local getNodes
+
+   -- nodes <- local getNodes
+--    r <- (runAt (nodes !! 0) $ showNode 0 )  <>
+--          (runAt (nodes !! 1)  $ showNode 1 )   <>
+--          (runAt (nodes !! 2)  $ showNode 2) 
     r <- mclustered $ showNode
     localIO $ print r
     where
-    showNode=  local $ do
+ 
+        
+    showNode =  local $ do
+
       n <-  getMyNode
-      -- liftIO $ when (nodePort n ==2000) $ threadDelay 1000000
+      -- liftIO $ threadDelay  $ 1000000  * (2-t)
       liftIO $ print n
+      return [n]

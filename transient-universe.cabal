@@ -119,7 +119,7 @@ executable test-transient1
         base >4
     default-language: Haskell2010
     hs-source-dirs: tests src .
-    ghc-options: -threaded -rtsopts
+    ghc-options: -threaded -rtsopts -fno-ignore-asserts
 
 
 test-suite test-transient
@@ -154,4 +154,4 @@ test-suite test-transient
         base >4
     default-language: Haskell2010
     hs-source-dirs: tests src .
-    ghc-options: -threaded -rtsopts
+    ghc-options: -threaded -rtsopts -fno-ignore-asserts

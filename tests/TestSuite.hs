@@ -70,7 +70,7 @@ test=  initNodeServ service  "localhost" 8080 $ do
                          <|>  (runAt node1 (shouldRun( node1) >> return "world" ))
                          <|>  (runAt node2 (shouldRun( node2) >> return "world2" ))
 
-         
+          assert(sort r== ["hello", "world","world2"]) $ localIO $  print r         
           
           localIO $ putStrLn "--------------checking Applicative distributed--------"
           r <- loggedc $(runAt node0 (shouldRun( node0) >> return "hello "))

@@ -365,7 +365,7 @@ unique f= do
 -- `teleport` uses this connection to translate the computation back and forth between the two nodes connected
 wormhole :: Loggable a => Node -> Cloud a -> Cloud a
 wormhole node (Cloud comp) = local $ Transient $ do
-   return () !> "wormhole"
+   -- return () !> "wormhole"
    moldconn <- getData :: StateIO (Maybe Connection)
    mclosure <- getData :: StateIO (Maybe Closure)
       -- when (isJust moldconn) . setState $ ParentConnection (fromJust moldconn) mclosure
@@ -375,7 +375,7 @@ wormhole node (Cloud comp) = local $ Transient $ do
 
    if not rec                                    
             then runTrans $ (do
-                    return () !> "NOT REC"
+                    -- return () !> "NOT REC"
                     conn <-  mconnect node
                     liftIO $ writeIORef (remoteNode conn) $ Just node
                     setData  conn{synchronous= maybe False id $ fmap synchronous moldconn, calling= True}
@@ -388,7 +388,7 @@ wormhole node (Cloud comp) = local $ Transient $ do
                        when (isJust mclosure) . setData $ fromJust mclosure
                     -- <** is not enough since comp may be reactive
             else do
-                    return () !> "YES REC"
+                    -- return () !> "YES REC"
                     let conn = fromMaybe (error "wormhole: no connection in remote node") moldconn
                     setData $ conn{calling= False}
                     runTrans $ comp
@@ -486,7 +486,7 @@ teleport  =  local $ Transient $ do
 -- #ifndef ghcjs_HOST_OS
         case contype of
          Just Self ->  runTrans $ do
-               -- setData  $ if (not calling) then WasRemote else WasParallel
+               setData  WasParallel
                abduce   !> "SELF" -- call himself
                liftIO $ do
                   remote <- readIORef $ remoteNode conn
@@ -526,7 +526,7 @@ teleport  =  local $ Transient $ do
                                        !> "--------->------>---------->"
  
   
-          -- setData $ if (not calling) then  WasRemote else WasParallel   !> "NOT CALLING"
+
           return Nothing
 
       else do
@@ -691,10 +691,10 @@ msend (Connection _ _ _ (Just Self) _ _ _ _ _ _ _) r= return ()
 
 
 msend (Connection _ _ _ (Just (Node2Node _ sock _)) _ _ blocked _ _ _ _) r=do
-   liftIO $   withMVar blocked $  const $ SBS.sendAll sock $ BC.pack (show r)   !> ("N2N SEND", r)
+   liftIO $   withMVar blocked $  const $ SBS.sendAll sock $ BC.pack (show r)  -- !> ("N2N SEND", r)
 
 msend (Connection _ _ _ (Just (TLSNode2Node ctx)) _ _ _ _ _ _ _) r=
-     liftIO $ sendTLSData  ctx $ BS.pack (show r)                              !> "TLS SEND"
+     liftIO $ sendTLSData  ctx $ BS.pack (show r)                            --  !> "TLS SEND"
 
 
 msend (Connection _ _ _ (Just (Node2Web sconn)) _ _ _ _ _ _ _) r=liftIO $
@@ -882,7 +882,7 @@ mconnect :: Node -> TransIO  Connection
 mconnect  node'=  do
   node <- fixNode node'
   nodes <- getNodes
-  return ()                                                !>  ("mconnnect", nodePort node)
+  -- return ()                                                !>  ("mconnnect", nodePort node)
   let fnode =  filter (==node) nodes
   case fnode of
    [] -> mconnect1 node   -- !> "NO NODE"
@@ -892,7 +892,7 @@ mconnect  node'=  do
         (handle:_) -> do
                   delData $ Closure undefined
                   return  handle
-                                                           !>   ("REUSED!", node)
+                                                     --      !>   ("REUSED!", node)
         _ -> mconnect1 node                                 
   where
 
@@ -1441,7 +1441,7 @@ listenNew port conn'=  do
           let (h,t) = span (/= '/') s
           in h: split  t
       
-      -- reverse proxy for urls that look like http://host:port/relay/otherhost/otherport
+      -- reverse proxy for urls that look like http://host:port/relay/otherhost/otherport/
       proxy sclient method vers uri' = do
         let (host:port:_)=  split $ BC.unpack $ BC.drop 6 uri'
         return () !> ("RELAY TO",host, port)
@@ -1624,7 +1624,7 @@ manageClosures =   do
 execLog :: StreamData NodeMSG -> TransIO ()
 execLog  mlog =  Transient $ do
        
-       return () !> "EXECLOG"
+       -- return () !> "EXECLOG"
        case mlog of
              SError e -> do
                case fromException e of
@@ -1661,7 +1661,7 @@ execLog  mlog =  Transient $ do
                                            M.delete closl map
                                          else map, M.lookup closl map)
                                            -- !> ("localClosures=", M.size map)
-         case mcont !> ("MCONT",isJust mcont)  of
+         case mcont  of
            Nothing -> do
 --
 --              if closl == 0   -- add what is after execLog as closure 0
@@ -1680,7 +1680,7 @@ execLog  mlog =  Transient $ do
                                              ++  show closl)
            -- execute the closure
            Just (mv,cont) -> do 
-              return () !> "JUST"
+              -- return () !> "JUST"
               liftIO $ tryPutMVar mv () 
               liftIO $ runStateT (case mlog of
                 Right log -> do
@@ -1691,7 +1691,7 @@ execLog  mlog =  Transient $ do
                   setData $ Log True  log  nlog  hash
                   setData $ Closure  closr 
                   setData NoRemote
-                  return () !>  "RUNCONTINUATION"
+                  -- return () !>  "RUNCONTINUATION"
                   runContinuation cont ()
 
                 Left except -> do
@@ -2095,7 +2095,8 @@ connect'  remotenode= loggedc $ do
               -- let newNodes = case  cdata of
               --                  Node2Web _ -> [(head nodes){nodeServices=[("relay",show remotenode)]}]
               --                  _ ->  nodes
-              let newNodes= map (\n -> n{nodeServices= nodeServices n ++ [("relay",show (remotenode,n))]}) nodes
+              
+              let newNodes=  nodes -- map (\n -> n{nodeServices= nodeServices n ++ [("relay",show (remotenode,n))]}) nodes
 
               callingNode<- fixNode $ head newNodes
 
@@ -2122,7 +2123,7 @@ connect'  remotenode= loggedc $ do
                 addNodes newNodes  
 
            localIO $ atomically $ do
-                  -- set the firt node (local node) as is called from outside
+                  -- set the first node (local node) as is called from outside
 --                     return () !> "HOST2 set"
                      nodes <- readTVar  nodeList
                      let nodes'= (head nodes){nodeHost=nodeHost remotenode

@@ -39,7 +39,7 @@ import Transient.Move.Internals hiding (pack)
 import Transient.Indeterminism
 import Control.Applicative
 import System.Random
-import Control.Monad.IO.Class
+import Control.Monad.State
 
 import Control.Monad
 import Data.Monoid
@@ -236,7 +236,7 @@ reduce red  (dds@(DDS mx))= loggedc $ do
                  n <- localIO  $ modifyMVar nsent $ \r -> return (r+1, r+1)
 
                  (runAt (nodes !! i) $  local $ putMailbox' mboxid (Reduce folded))
-                                                     !> ("send",n,length,i,folded)
+                                                     !> ("SENDDDDDDDDDDDDDDDDDDDDDDD",n,length,i,folded)
 
 --                 return () !> (port,n,length)
 
@@ -250,9 +250,11 @@ reduce red  (dds@(DDS mx))= loggedc $ do
                                 $ (i,map (\(k,vs) -> (k,foldl1 red vs)) kvs)
 
 
-       sendEnd  nodes   =  onNodes nodes $ local
-                            $  putMailbox'  mboxid (EndReduce `asTypeOf` paramOf dds)
---                                                  !> ("send ENDREDUCE ", port))
+       sendEnd  nodes   =  onNodes nodes $ local $ do
+                                node <- getMyNode
+                                putMailbox'  mboxid (EndReduce `asTypeOf` paramOf dds)
+                                  !> ("SEEEEEEEEEEEEEEEEEEEEEEEEND ENDREDUCE FROM", node)
+
 
        onNodes nodes f = foldr (<|>) empty $ map (\n -> runAt n f) nodes
 
@@ -276,7 +278,7 @@ reduce red  (dds@(DDS mx))= loggedc $ do
 
 
                 if n == lengthNodes
---                                              !> ("END REDUCE RECEIVED",n, lengthNodes)
+                                              !> ("END REDUCE RECEIVEDDDDDDDDDDDDDDDDDDDDDDDDDD",n, lengthNodes)
                  then do
                     cleanMailbox' mboxid (EndReduce `asTypeOf` paramOf dds)
                     r <- liftIO $ readMVar reduceResults
@@ -295,7 +297,7 @@ reduce red  (dds@(DDS mx))= loggedc $ do
                                     Nothing    ->  input) map 
 
                 mapM addIt  (kvs `asTypeOf` paramOf' dds)
-                                                                     !> ("Received Reduce",kvs)
+                                                                     !> ("RECEIVED REDUCEEEEEEEEEEEEE",kvs)
                 stop
 
 
@@ -409,6 +411,8 @@ distribute'' xss nodes =
 getText  :: (Loggable a, Distributable vector a) => (String -> [a]) -> String -> DDS (vector a)
 getText part str= DDS $ loggedc $ do
    nodes <- local getEqualNodes                                        -- !> "getText"
+
+   return () !> ("DISTRIBUTE TEXT IN NODES:",nodes)
    let lnodes = length nodes
 
    parallelize  (process lnodes)  $ zip nodes [0..lnodes-1]
