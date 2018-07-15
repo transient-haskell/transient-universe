@@ -37,22 +37,22 @@ main = keep . runCloud $ do
 
 
        let n= num - length nodes
-       if n==0 then return nodes 
+       if n <= 0 then return $ take num nodes 
         else  return nodes <>  requestInstall ident service n
     where
 
     requestInstall :: String -> Service -> Int -> Cloud [ Node]
     requestInstall ident service num=  do
       ns <- local getEqualNodes  
-    --   return () !> ("equal",ns)    
+      return () !> ("equal",ns)    
       auth <-   callNodes' ns (<>) mempty  $  localIO $ authorizeService ident service >>=  \x -> return [x]
-    --   return () !> auth
+      return () !> auth
       let nodes = map fst $ filter  snd  $ zip ns auth 
           nnodes= length nodes
           pernode= num `div` nnodes
           lacking= num `rem` nnodes
           (nodes1,nodes2)= splitAt  lacking nodes
-    --   return () !> (pernode,lacking,nodes1,nodes2)
+      return () !> (pernode,lacking,nodes1,nodes2)
       rs <- callNodes' nodes1 (<>) mempty (installHere ident service (pernode+1)) <>           
             callNodes' nodes2 (<>) mempty (installHere ident service pernode)
       local $ addNodes rs 
@@ -70,13 +70,13 @@ main = keep . runCloud $ do
                     thisNode <- getMyNode
                     let node= Node (nodeHost thisNode)  port Nothing  service   -- node to be published
                         nodelocal= Node "localhost" port Nothing [("externalNode", show $ node{nodeServices=[]})] -- local node
-                    addNodes [node{nodeServices=("localNode", show nodelocal{nodeServices=[]}):nodeServices node},nodelocal ]
-                    return node {nodeServices= nodeServices node ++ [("relay",show thisNode{nodeServices=[]})]}
+                    addNodes [node] --  {nodeServices=("localNode", show nodelocal{nodeServices=[]}):nodeServices node},nodelocal ]
+                    return node -- {nodeServices= nodeServices node ++ [("relay",show thisNode{nodeServices=[]})]}
               `catcht` \(e :: SomeException) ->  liftIO (putStr "INSTALLLLLLLLLLLLLLL2222222: " >> print e) >> empty
 
       
 
--- nodeService node@(Node h _ _ _) port service=  Node h port Nothing $ service  -- ++ [("relay",show $node{nodeServices=[]})
+
 
 
 
@@ -131,7 +131,7 @@ tryExec program host port= do
           
           pathExe  program host port=
                  program  ++ " -p start/" ++ show (host ::String) 
-                                   ++"/" ++ show (port ::Int) ++ " > "++ program ++ host ++ show port ++ ".log"
+                                   ++"/" ++ show (port ::Int) ++ " > "++ program ++ host ++ show port ++ ".log  2>&1"
 
 
 

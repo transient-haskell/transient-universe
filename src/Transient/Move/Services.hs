@@ -69,7 +69,7 @@ requestInstance ident service num=  loggedc $ do
 
 startMonitor :: MonadIO m => m ()
 startMonitor=  liftIO $ do
-        (_,_,_,h) <- createProcess . shell $ "monitorService -p start/localhost/"++ show monitorPort
+        (_,_,_,h) <- createProcess . shell $ "monitorService -p start/localhost/"++ show monitorPort ++ " > monitor.log 2>&1"
         writeIORef monitorHandle $ Just h
         threadDelay 2000000
 
@@ -83,7 +83,7 @@ endMonitor= do
 
 findInNodes :: Service -> TransIO [Node]
 findInNodes service =  do
-    --   return () !> "FINDINNODES"
+      return () !> "FINDINNODES"
       nodes <-  getNodes
       return $ filter (\node  -> head service == head  (nodeServices node)) nodes
      
