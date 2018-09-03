@@ -20,6 +20,8 @@ import           System.Exit
 import           Control.Monad.State
 import           Control.Exception
 
+import           Control.Concurrent(threadDelay )
+
 -- #define _UPK_(x) {-# UNPACK #-} !(x)
 
 
@@ -30,7 +32,7 @@ service= [("service","test suite")
          ,("package","https://github.com/agocorona/transient-universe")]
 
 main= do
-     mr <- keep $ test   `catcht` \(e:: SomeException) -> liftIO (putStr "EXCEPTiON: " >> print e) >> exit (Just e)
+     mr <- keep test
      endMonitor 
 
      case mr of
@@ -38,20 +40,16 @@ main= do
        Just Nothing -> print "SUCCESS" >> exitSuccess 
        Just (Just e) -> putStr "FAIL: " >> print e >> exitFailure
 
+ 
 
+      
 
 test=  initNodeServ service  "localhost" 8080 $ do
-     
-          
           node0 <- local getMyNode
           
           local $ guard (nodePort node0== 8080)       -- only executes in node 8080
-          
-      --  local $ option "get" "get instances"
 
-        
-          [node1, node2] <- requestInstance "PIN1" service 2
- 
+          [node1, node2] <- requestInstance "PIN1" service 2 
 
           local ( option "f" "fire")   <|> return ""       -- to repeat the tests,  remove the "exit" at the end 
 
