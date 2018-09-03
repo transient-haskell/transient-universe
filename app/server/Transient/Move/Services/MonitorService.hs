@@ -15,7 +15,8 @@
 module Main where
 
 import Transient.Internals
-
+import Transient.Logged
+import Transient.Indeterminism(choose)
 import Transient.Move.Internals
 import Transient.Move.Utils
 import Transient.Move.Services
@@ -28,13 +29,77 @@ import Data.List
 import System.Process
 import System.Directory
 import Data.Monoid
+import Unsafe.Coerce
+import System.IO.Unsafe
+import Data.IORef
+import qualified Data.Map as M
+import GHC.Conc
 
-main = keep . runCloud $ do
-    runService monitorService 3000 $ \(ident,service,num) -> do
-       return () !> ("RUNSERVICE",ident, service, num)
+
+
+   
+main = do
+   putStrLn "Starting Transient monitor"
+   keep' . runCloud $ runService monitorService 3000 
+ 
+                        [serve receiveStatus
+                        ,serve returnInstances
+                        ,serve reReturnInstances]
+                        (loggedc $ return() <** setData WasRemote) 
+
+
+   
+pings =  do
+  
+  localIO $ print $ "INITIATING PINGSSSSSSSSSSSSSSSSSSSSSSS"
+  local $ threads 0 $ choose ([1..] :: [Int])
+  
+
+  nodes <-  local getNodes --localIO $ do
+  return () !> ("NODES=", length nodes)
+            
+  localIO $ threadDelay 10000000       
+
+  local $ threads 1 $ runCloud' $ mapM ping $  tail nodes
+  empty
+
+  
+   
+type Port= Int
+
+receiveStatus :: (Port, String) -> Cloud ()
+receiveStatus (port, logLine)= do
+   localIO $ appendFile ("log"++ show port) $ logLine++"\n"
+   
+
+blockings= unsafePerformIO $ newIORef M.empty
+
+
+withBlockingService :: Service -> Cloud a -> Cloud a
+withBlockingService serv proc= do
+   beingDone <- localIO $ atomicModifyIORef  blockings $ \map -> 
+                                let mv = M.lookup serv map
+                                in case mv of
+                                   Nothing -> (M.insert serv () map,False)
+                                   Just () -> (map,True)
+   if beingDone 
+    then do
+         --localIO $ threadDelay 3000000
+         withBlockingService serv proc
+    else do
+       r <- proc
+       localIO $ atomicModifyIORef blockings $ \map -> (M.delete serv map,())
+       return r
+
+reReturnInstances :: (String, Node, Int) -> Cloud [Node] 
+reReturnInstances (ident, node, num)=  do
+      local $ delNodes [node]
+      returnInstances (ident, nodeServices node, num)
+
+returnInstances :: (String, Service, Int) -> Cloud [Node] 
+returnInstances (ident, service, num)= withBlockingService service $ do
+
        nodes <- local $ findInNodes service >>= return . take num
-       -- onAll $ liftIO $ print  ("NODES",nodes)
-
 
        let n= num - length nodes
        if n <= 0 then return $ take num nodes 
@@ -56,7 +121,9 @@ main = keep . runCloud $ do
       rs <- callNodes' nodes1 (<>) mempty (installHere ident service (pernode+1)) <>           
             callNodes' nodes2 (<>) mempty (installHere ident service pernode)
       local $ addNodes rs 
-      return rs   -- !>  ("MONITOR RETURN---------------------------------->", rs)
+      ns <- onAll getNodes
+      
+      return rs   !>  ("MONITOR RETURN---------------------------------->", rs)
        
     -- installIt = installHere ident service <|> installThere ident service
     installHere  :: String -> Service -> Int -> Cloud [ Node]
