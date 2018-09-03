@@ -99,7 +99,7 @@ initNodeServ services host port app= do
 -- the first of the two is not connected to synchronize their list of nodes. The second does.
 inputNodes :: Cloud empty
 inputNodes= onServer $ do 
-  --local abduce
+  local abduce
   listNodes <|> addNew
   where
   addNew= do
@@ -158,7 +158,9 @@ initWebApp node app=  do
     serverNode <- getWebServerNode  :: TransIO Node
 
     mynode <- if isBrowserInstance
-                    then liftIO $ createWebNode
+                    then  do
+                        addNodes [serverNode]
+                        return node
                     else return serverNode
 
 
