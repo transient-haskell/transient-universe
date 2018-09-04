@@ -97,10 +97,11 @@ requestInstance ident service num=  loggedc $ do
 requestInstanceFail :: String -> Node -> Int -> Cloud [Node]
 requestInstanceFail ident node num=  loggedc $ do
        return () !> "REQUEST INSTANCEFAIL"
-       local $ onException $ \(e:: ConnectionError) ->  startMonitor >> continue    --  !> ("EXCEPTIOOOOOOOOOOON",e)
+       local $ delNodes [node]
+       local $ onException $ \(e:: ConnectionError) ->  startMonitor >> continue      !> ("EXCEPTIOOOOOOOOOOON",e)
        
-       nodes <- callService' ident monitorNode (ident,node, num )
-       local $ addNodes nodes                                                       -- !> ("ADDNODES",service)
+       nodes <- callService' ident monitorNode (ident,node, num )                    !> "CALLSERVICE'"
+       local $ addNodes nodes                                                        !> ("ADDNODES")
        return nodes
 
 
@@ -346,7 +347,6 @@ runService servDesc defPort servs proc= runService' servDesc defPort serv1  proc
          -} 
           
        services= do
-          onAll $ liftIO $ print "SERVICE"
           onAll abduce
           wormhole (notused 1) $  do
               x <- local . return $ notused 2

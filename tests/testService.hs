@@ -16,7 +16,7 @@ import Control.Monad.State
 import Control.Exception(SomeException,ErrorCall,throw)
 
 main= keep $    initNode $   
-    ping1 <|> ping2  <|> singleExec <|> stream <|> failThreeTimes <|> many1
+    ping1 <|> ping2  <|> singleExec <|> stream <|> failThreeTimes <|> many1 <|> fail3requestNew
 
          
 ping1 = do
@@ -55,6 +55,36 @@ stream= do
         empty
         
         
+fail3requestNew=  do
+    local $ option "fail6"  "try a new instance"
+
+    retries <- onAll $ liftIO $ newIORef (0 :: Int)
+    
+
+    local cutExceptions
+    local $ onException $ retry6 retries
+
+    r <- networkExecute "" "UNKNOWN COMMAND" ""
+
+    localIO $ print ("LINE=",r :: String )
+
+    where
+    retry6 retries (CloudException node _ _ )= runCloud $ do
+         localIO $ print ("tried to execute in", node)
+         n <- onAll $ liftIO $ atomicModifyIORef retries $ \n -> (n+1,n+1)
+         localIO $ print ("NUMBER OF RETRIES",n)
+         
+         if n == 3 then do
+               localIO $ putStrLn "failed after three retries, reclaiming new instance"
+               local continue
+               [node'] <- requestInstanceFail "" node  1
+               localIO $ print ("NEW NODE FOR SERVICE", node')
+
+         else if  n < 6  then local continue 
+         
+         else  localIO $ print "failed after six retries with two instances, aborting"
+
+
 failThreeTimes=  do
     local $ option "fail"  "fail"
     
@@ -70,27 +100,28 @@ failThreeTimes=  do
                empty
 
     local $ onException $ \(e :: CloudException) -> retry3 e
-
+    
     r <- networkExecute "" "UNKNOWN COMMAND" ""
 
     localIO $ print ("LINE=",r :: String )
-
-
  
 many1=  do
-        local $ option "many" "show how a command is executed in different executor instances"
+        local $ option "many" "show how a command is tried to be executed in different executor instances"
         requestInstance "" executorService 5
         retries <- onAll $ liftIO $ newIORef (0 :: Int)
-    
-        let retry1 n' (CloudException node _ _ )=  do
+                   
+        local $ onException $ \e  -> retry1 5 retries e   
+        
+        networkExecute "" "unknow command" ""
+ 
+        return ()
+        
+        where
+        retry1 n' retries (CloudException node _ _ )=  do
              liftIO $ print ("tried to execute in", node)
              n <- liftIO $ atomicModifyIORef retries $ \n -> (n+1,n+1)
              liftIO $ print ("NUMBER OF RETRIES",n)
              if n < n' then continue else  do
                    liftIO $ putStr  "stop after " >> putStr (show n) >> putStrLn "retries"
-                   empty
-                   
-        local $ onException $ \e  -> retry1 5 e       
-        networkExecute "" "unknow commnd" ""
- 
-        return ()
+                   empty 
+
