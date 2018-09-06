@@ -17,7 +17,7 @@ import Control.Exception(SomeException,ErrorCall,throw)
 
 main= keep $    initNode $   
     ping1 <|> ping2  <|> singleExec <|> stream <|> failThreeTimes <|> many1 <|> fail3requestNew
-
+          <|> requestAtHost
          
 ping1 = do
         local $ option "ping1" "ping monitor (must have been started"
@@ -60,8 +60,6 @@ fail3requestNew=  do
 
     retries <- onAll $ liftIO $ newIORef (0 :: Int)
     
-
-    local cutExceptions
     local $ onException $ retry6 retries
 
     r <- networkExecute "" "UNKNOWN COMMAND" ""
@@ -125,3 +123,26 @@ many1=  do
                    liftIO $ putStr  "stop after " >> putStr (show n) >> putStrLn "retries"
                    empty 
 
+requestAtHost= do
+       local $ option "host"  "request the execution of a shell process at a given machine"
+       hostname <- local $ input (const  True)  "enter the hostname (the machine should have monitorService running at port 3000) "
+       process <- local $ input (const  True)  "enter the process to run (for example: bash) "
+       line <- atHost hostname process  <|> inputCommands process
+       localIO $ print ("LINE", line) 
+       where
+       inputCommands process= do
+
+              local $ option "inp" "enter input for the process created"
+              inp <- local $ input  (const True) "input string: " :: Cloud String
+              callService "" executorService (process, inp) :: Cloud() 
+              empty
+   
+       atHost :: String -> String -> Cloud String
+       atHost hostname process = do
+               executor <- requestInstanceHost "" hostname executorService
+               callService' "" executor process
+   
+   
+   
+   
+   

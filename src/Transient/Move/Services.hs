@@ -93,6 +93,15 @@ requestInstance ident service num=  loggedc $ do
        nodes <- callService' ident monitorNode (ident,service, num )
        local $ addNodes nodes                                                       -- !> ("ADDNODES",service)
        return nodes
+       
+requestInstanceHost :: String -> String -> Service -> Cloud Node
+requestInstanceHost ident hostname service= do
+    monitorHost <- localIO $ createNodeServ hostname
+            (fromIntegral monitorPort)
+            monitorService
+    nodes@[node] <- callService' ident monitorHost  (ident,service, 1::Int)
+    local $ addNodes nodes
+    return node 
 
 requestInstanceFail :: String -> Node -> Int -> Cloud [Node]
 requestInstanceFail ident node num=  loggedc $ do
