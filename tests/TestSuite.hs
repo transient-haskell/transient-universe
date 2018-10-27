@@ -53,6 +53,8 @@ test=  initNodeServ service  "localhost" 8080 $ do
 
           local ( option "f" "fire")   <|> return ""       -- to repeat the tests,  remove the "exit" at the end 
 
+
+
           localIO $ putStrLn "------checking  empty in remote node when the remote call back the caller #46 --------"
           r <- runAt node1 $ do
                shouldRun node1

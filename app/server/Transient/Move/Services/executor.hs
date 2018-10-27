@@ -20,6 +20,7 @@ import Transient.Move.Internals
 import Transient.Move.Utils
 import Transient.Logged(maybeFromIDyn)
 import Transient.Move.Services
+import Transient.Move.Services.Executor
 import Control.Applicative
 import Control.Monad.IO.Class
 import Control.Exception(SomeException(..),catch)
@@ -35,19 +36,14 @@ import System.IO.Unsafe
 import qualified Data.Map as M
 import Data.Maybe
 
--- need as many instances as nodes
--- must execute each request in a random node.
--- solved: monitor return N instances one for node
--- networkExecute... select a different node each time.
--- sendExecute need to detect the executor instance.
 
 main = do
    putStrLn "Starting Transient Executor Service"
-   keep' . runCloud $ runService executorService 3005  
+   keep' $ runService executorService 3005  
                 [ serve networkExecuteStreamIt
                 , serve networkExecuteIt
                 , serve sendExecuteStreamIt]
-                (local $ return()) 
+                empty 
                 
 sendExecuteStreamIt :: (String,String) -> Cloud ()
 sendExecuteStreamIt (cmdline, inp)= do

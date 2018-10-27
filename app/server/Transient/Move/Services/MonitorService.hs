@@ -40,12 +40,12 @@ import GHC.Conc
    
 main = do
    putStrLn "Starting Transient monitor"
-   keep' . runCloud $ runService monitorService 3000 
+   keep' $ runService monitorService 3000 
  
                         [serve receiveStatus
                         ,serve returnInstances
                         ,serve reReturnInstances]
-                        (loggedc $ return() <** setData WasRemote) 
+                        empty 
 
 
    
@@ -53,14 +53,13 @@ pings =  do
   
   localIO $ print $ "INITIATING PINGSSSSSSSSSSSSSSSSSSSSSSS"
   local $ threads 0 $ choose ([1..] :: [Int])
-  
 
-  nodes <-  local getNodes --localIO $ do
+  nodes <-  local getNodes 
   return () !> ("NODES=", length nodes)
             
   localIO $ threadDelay 10000000       
 
-  local $ threads 1 $ runCloud' $ mapM ping $  tail nodes
+  local $ threads 1 $ runCloud $ mapM ping $  tail nodes
   empty
 
   
@@ -160,8 +159,6 @@ install  service port= do
         tryExec program host port  <|> tryDocker service host port program
                                    <|> do tryInstall service  ; tryExec program host port
 
-emptyIfNothing :: Maybe a -> TransIO a
-emptyIfNothing =  Transient  . return
 
 tryInstall :: Service -> TransIO ()
 tryInstall service = do 

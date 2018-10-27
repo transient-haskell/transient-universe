@@ -109,8 +109,8 @@ inputNodes= onServer $ do
                           if r ==  "" then stop else return r
 
           port      <- local $ input (const True) "port? "
-
-          services  <- local $ input' (Just []) (const True) "services? ([]) "
+          serv <- nodeServices <$> local getMyNode 
+          services  <- local $ input' (Just serv) (const True) ("services? ("++ show serv ++ ") ")
 
           connectit <- local $ input (\x -> x=="y" || x== "n") "connect to the node to interchange node lists? (n) "
           nnode <- localIO $ createNodeServ host port  services

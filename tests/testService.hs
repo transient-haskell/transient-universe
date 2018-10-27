@@ -6,6 +6,7 @@ import Transient.Move.Internals
 import Transient.Move.Utils
 import Transient.Logged
 import Transient.Move.Services
+import Transient.Move.Services.Executor
 import Control.Applicative
 import Control.Monad
 
@@ -13,12 +14,59 @@ import Data.Typeable
 import Data.IORef
 import Control.Concurrent (threadDelay)
 import Control.Monad.State
-import Control.Exception(SomeException,ErrorCall,throw)
+import Control.Exception hiding (onException)
 
-main= keep $    initNode $   
-    ping1 <|> ping2  <|> singleExec <|> stream <|> failThreeTimes <|> many1 <|> fail3requestNew
-          <|> requestAtHost
-         
+
+
+{-  
+ example record updates, distributed database?
+ connect. Un servicio para conectar añadir instancias?
+ problem ps
+ self invocations x
+  
+ unify throw cloudExceptions x
+ connect created instances 
+       connectNode as service.
+ perform request to N nodes, call additional nodes if anyone fail.
+ services for web nodes x
+
+REST serv as a transient service: restservice string (a,b,c,POST d,e) serializar a string ->     /a/b/e  BODY d
+     callService con [type, REST] lo transforma
+     allocate with monitor: Just compile and execute. no ping
+     
+a transient service as REST service: in the http treatment in listen: /a/b/c/d -> (a,b,c,d)
+
+ option to discover the types of service parameters:
+     get the services
+     return the types
+ 
+ -}
+
+
+main= keep $ runService [] 8000 [serve selfService] $ do   
+    ping1 <|> ping2  <|> singleExec <|> stream <|> 
+     failThreeTimes <|> many1 <|> fail3requestNew <|> 
+      requestAtHost <|> self
+      
+selfService str = localIO $ return $ "hello " ++ str
+
+{-
+register= do
+   local $ option "reg" "simulate a two way reactive database update service"
+   reg <- input (const True) "enter register content "
+   reg' <- update reg
+   localIO $ putStr "new register changed: " >> putStrLn reg'
+-} 
+
+self= do
+  local $ option "own"  "call a service of my own program"
+  
+  nod <- local $ getMyNode
+
+  
+  r <- callService' "" nod "Alberto" :: Cloud String
+  localIO  $ print r
+  
 ping1 = do
         local $ option "ping1" "ping monitor (must have been started"
         r <- callService' "" monitorNode ()
@@ -84,7 +132,7 @@ fail3requestNew=  do
 
 
 failThreeTimes=  do
-    local $ option "fail"  "fail"
+    local $ option "fail"  "fail after three retries"
     
  
     retries <- onAll $ liftIO $ newIORef (0 :: Int)

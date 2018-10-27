@@ -258,9 +258,9 @@ reduce red  (dds@(DDS mx))= loggedc $ do
 
        onNodes nodes f = foldr (<|>) empty $ map (\n -> runAt n f) nodes
 
-       sumNodes nodes f= foldr (<>) mempty $ map (\n -> runAt n f) nodes
+       sumNodes nodes f= do   foldr (<>) mempty $ map (\n -> runAt n f) nodes
 
-       reducer nodes=   sumNodes nodes reduce1    -- a reduce1 process in each node, get the results and mappend them
+       reducer nodes= sumNodes nodes reduce1    -- a reduce1 process in each node, get the results and mappend them
 
 --     reduce :: (Ord k)  => Cloud (M.Map k v)
 
@@ -282,7 +282,8 @@ reduce red  (dds@(DDS mx))= loggedc $ do
                  then do
                     cleanMailbox' mboxid (EndReduce `asTypeOf` paramOf dds)
                     r <- liftIO $ readMVar reduceResults
-                    return r
+                    rem <- getState <|> return NoRemote
+                    return r !> ("RETURNING",r,rem)
 
                  else stop
 
