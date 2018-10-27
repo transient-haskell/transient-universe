@@ -13,7 +13,7 @@
 -----------------------------------------------------------------------------
 
 
-{-# LANGUAGE DeriveDataTypeable , ExistentialQuantification, OverloadedStrings
+{-# LANGUAGE DeriveDataTypeable , ExistentialQuantification, OverloadedStrings,FlexibleInstances, UndecidableInstances
     ,ScopedTypeVariables, StandaloneDeriving, RecordWildCards, FlexibleContexts, CPP
     ,GeneralizedNewtypeDeriving #-}
 module Transient.Move.Internals where
@@ -50,7 +50,9 @@ import qualified Data.ByteString.Lazy                   as BL
 import qualified Data.ByteString.Lazy.Char8             as BS
 import           Network.Socket.ByteString              as SBS(sendMany,sendAll,recv)
 import qualified Network.Socket.ByteString.Lazy         as SBSL
-import           Data.CaseInsensitive(mk)
+import           Data.CaseInsensitive(mk,CI)
+import           Data.Char
+import           Data.Aeson
 
 -- import System.Random
 
@@ -82,13 +84,15 @@ import Control.Concurrent.MVar
 
 import Data.Monoid
 import qualified Data.Map as M
-import Data.List (nub,(\\)) -- ,find, insert)
+import Data.List (nub,(\\),intersperse) -- ,find, insert)
 import Data.IORef
 
 import Control.Concurrent
 
 import System.Mem.StableName
 import Unsafe.Coerce
+
+
 
 {- TODO
   timeout for closures: little smaller in sender than in receiver
@@ -207,10 +211,12 @@ onAll ::  TransIO a -> Cloud a
 onAll =  Cloud
 
 -- | only executes if the result is demanded. It is useful when the conputation result is only used in
--- the remote node, but it is not serializable. All the state changes with `setData` `setState` etc. are lost
+-- the remote node, but it is not serializable. All the state changes executed in the argument with 
+-- `setData` `setState` etc. are lost
 lazy :: TransIO a -> Cloud a
 lazy mx= onAll $ getCont >>= \st -> Transient $
-        return $ unsafePerformIO $  runStateT (runTrans mx) st >>=  return .fst
+        return $ unsafePerformIO $ runStateT (runTrans mx) st >>=  return .fst 
+
 
 -- | executes a non-serilizable action in the remote node, whose result can be used by subsequent remote invocations
 fixRemote mx= do
@@ -247,9 +253,6 @@ lliftIO= local . liftIO
 localIO :: Loggable a => IO a -> Cloud a
 localIO= lliftIO
 
--- | stop the current computation and does not execute any alternative computation
-fullStop :: TransIO stop
-fullStop= setData WasRemote >> stop
 
 
 -- | continue the execution in a new node
@@ -454,7 +457,7 @@ teleport  =  local $ Transient $ do
 
         
         -- when a node call itself, there is no need of socket communications
-
+        
         case contype of
          Just Self -> runTrans $ do
                setData  WasParallel
@@ -462,7 +465,7 @@ teleport  =  local $ Transient $ do
                liftIO $ do
                   remote <- readIORef $ remoteNode conn
                   writeIORef (myNode conn) $ fromMaybe (error "teleport: no connection?") remote
-
+             
 
          _ -> do
 
@@ -531,7 +534,11 @@ to tell explicitly what is the closure that will continue the execution. this is
 >      delta <- react  onEachChange
 >      forallNodes $ update delta
 
-if forwardChanges send to all the nodes editing the document, the data necessary to reconstruct the closure would include even the source code of the file on EACH change. Fortunately it is possible to fix a closure that will not change in all the remote nodes so after that, I only have to send the only necessary variable, the delta. This is as efficient as an hand-made socket write/forkThread/readSocket loop for each node.
+if forwardChanges send to all the nodes editing the document, the data necessary to reconstruct the 
+closure would include even the source code of the file on EACH change. 
+Fortunately it is possible to fix a closure that will not change in all the remote nodes so after that, 
+I only have to send the only necessary variable, the delta. This is as efficient as an hand-made 
+socket write/forkThread/readSocket loop for each node.
 -}
 localFix= localFixServ False
 
@@ -539,7 +546,6 @@ localFixServ isService = Cloud $ noTrans $ do
    Log rec log fulLog closLocal <- getData `onNothing` return (Log False [][] 0)
    if rec 
      then do
-
          conn@Connection{..} <- getData
                              `onNothing` error "teleport: No connection defined: use wormhole"
          cont <- get
@@ -677,18 +683,18 @@ callNodes' nodes op init proc= loggedc' $ foldr op init $ map (\node -> runAt no
 -----
 #ifndef ghcjs_HOST_OS
 sendRaw (Connection _ _ _ (Just (Node2Web  sconn )) _ _ _ _ _ _ _) r=
-      liftIO $   WS.sendTextData sconn  r                                --  !> ("NOde2Web",r)
+      liftIO $   WS.sendTextData sconn  r                                  !> ("NOde2Web",r)
 
 sendRaw (Connection _ _ _ (Just (Node2Node _ sock _)) _ _ blocked _ _ _ _) r=
       liftIO $  withMVar blocked $ const $  SBS.sendMany sock
-                                      (BL.toChunks r )                   -- !> ("NOde2Node",r)
+                                      (BL.toChunks r )                    !> ("NOde2Node",r)
 
 sendRaw (Connection _ _ _(Just (TLSNode2Node  ctx )) _ _ blocked _ _ _ _) r=
-      liftIO $ withMVar blocked $ const $ sendTLSData ctx  r       --  !> ("TLNode2Web",r)
+      liftIO $ withMVar blocked $ const $ sendTLSData ctx  r         !> ("TLNode2Web",r)
 
 #else
 sendRaw (Connection _ _ _ (Just (Web2Node sconn)) _ _ blocked _  _ _ _) r= liftIO $
-   withMVar blocked $ const $ JavaScript.Web.WebSocket.send   r sconn   -- !!> "MSEND SOCKET"
+   withMVar blocked $ const $ JavaScript.Web.WebSocket.send   r sconn     !> "MSEND SOCKET"
 #endif
 
 sendRaw _ _= error "No connection stablished"
@@ -850,6 +856,7 @@ mread (Connection  _ _ _ (Just (Relay conn _  )) _ _ _ _ _ _ _)=
 parallelReadHandler :: Loggable a => TransIO (StreamData a)
 parallelReadHandler= do
       str <- giveData :: TransIO BS.ByteString
+
       r <- choose $ readStream  str
 
       return  r
@@ -897,8 +904,8 @@ mconnect :: Node -> TransIO  Connection
 mconnect  node'=  do
   node <- fixNode node'
   nodes <- getNodes
-  -- return ()                                                !>  ("mconnnect", nodePort node)
-  let fnode =  filter (==node) nodes
+  return ()                                                !>  ("mconnnect", nodePort node)
+  let fnode =  filter (==node)  nodes
   case fnode of
    [] -> mconnect1 node   -- !> "NO NODE"
    [node'@(Node _ _ pool _)] -> do
@@ -940,21 +947,22 @@ mconnect  node'=  do
     where
     checkSelf node= do
       node' <- getMyNode
-      if node /= node' 
+      v <- liftIO $ readMVar (fromJust $ connection  node') -- to force connection in case of calling a service of itself
+      if node /= node' ||   null v  
        then  empty
        else do
           conn<- case connection node of
              Nothing    -> error "checkSelf error"
              Just ref   ->  do
                  cnn <- getSData <|> error "checkself: no connection"
-                 rnode  <- liftIO $ newIORef node
-                 conn   <- defConnection >>= \c -> return c{myNode= rnode, comEvent=comEvent cnn,connData= Just Self} !> "DEFF1"
+                 rnode  <- liftIO $ newIORef node'
+                 conn   <- defConnection >>= \c -> return c{myNode= rnode, comEvent=comEvent cnn, connData= Just Self} !> "DEFF1"
                  liftIO $ withMVar ref $ const $ return [conn]
                  return conn
 
           return (conn,(ParseContext (error "checkSelf parse error") (error "checkSelf parse error")
                             ::  ParseContext BS.ByteString)) 
-    
+
     timeout t proc=do
        r <- collect' 1 t proc
        case r of
@@ -1009,6 +1017,7 @@ mconnect  node'=  do
 
 
         maybeClientTLSHandshake host sock input
+        return () !> "After"
 
 
       `catcht` \(e :: SomeException) ->   empty 
@@ -1017,10 +1026,11 @@ mconnect  node'=  do
     connectNode2Node host port= do
         return () !> "NODE 2 NODE"
         connectSockTLS host port
+        return () !> "AFTER2"
 
         conn <- getSData <|> error "mconnect: no connection data"
         sendRaw conn "CLOS a b\r\n\r\n"
-
+        return () !> "AFTER3"
         r <- liftIO $ readFrom conn
 
         case r of
@@ -1232,6 +1242,13 @@ getBuffSize=
 --
 listen ::  Node ->  Cloud ()
 listen  (node@(Node _   port _ _ )) = onAll $ do
+--   onException $ \(e :: SomeException) -> do
+--         case fromException e of
+--           Just (CloudException _ _ _) -> return()
+--           _ -> do
+--                      Closure closRemote <- getData `onNothing` error "teleport: no closRemote"
+--                      conn <- getData `onNothing` error "reportBack: No connection defined: use wormhole"
+--                      msend conn  $ SError $ toException $ ErrorCall $ show $ show $ CloudException node closRemote $ show e
 
    ex <- exceptionPoint :: TransIO (BackPoint SomeException)
    setData ex
@@ -1335,7 +1352,7 @@ listenNew port conn'=  do
    let conn= conn'{idConn=id1,closChildren=chs, remoteNode= noNode}
 
    input <-  liftIO $ SBSL.getContents sock
-
+   return () !> "SOME INPUT"
    -- cutExceptions
 
   --  onException $ \(e :: IOException) -> 
@@ -1369,12 +1386,13 @@ listenNew port conn'=  do
 
   --  (method,uri, headers) <- receiveHTTPHead
    (method, uri, vers) <- getFirstLine
+   return () !> (method, uri, vers)
    case method of
 
      "CLOS" ->
           do
            conn <- getSData
-           sendRaw conn "OK"                               --     !> "CLOS detected"
+           sendRaw conn "OK"                                   !> "CLOS detected"
 
            mread conn
 
@@ -1880,8 +1898,8 @@ getFirstLine=  (,,) <$> getMethod <*> (toStrict <$> getUri) <*> getVers
     getUri= parseString
     getVers= parseString
 
-getRawHeaders=  dropSpaces >> parse (scan mempty)
-
+getRawHeaders=  dropSpaces >> (withData $ \s -> return $ scan mempty s)
+ 
    where
    scan  res str
          
@@ -2179,7 +2197,80 @@ connect _ _= empty
 connect' _ = empty
 #endif
 
+#ifndef ghcjs_HOST_OS
+-------------------------------  HTTP client ---------------
+
+class Typeable a => Loggable1 a where
+   serialize :: a -> BS.ByteString
+   deserialize :: BS.ByteString -> Maybe (a, BS.ByteString)
 
 
+instance {-# Overlapping #-}  Loggable1 Value where
+   serialize= encode
+   deserialize msg= case decode msg !> "DECODE" of
+          Just x -> Just (x,mempty)
+          _      -> Nothing
 
 
+instance{-# Overlappable #-} (Typeable a, Show a, Read a) => Loggable1 a where
+   serialize = BS.pack . show
+   deserialize s= case readsPrec 0 (BS.unpack  s)!> "READS" of
+        [] -> Nothing
+        (r,t): _ -> Just (r,BS.pack t)
+
+
+newtype HTTPHeaders= HTTPHeaders  [(CI BC.ByteString,BC.ByteString)] deriving Show
+
+rawREST :: Loggable1 a => Node -> String -> TransIO  a
+rawREST node restmsg = do
+  sock <- liftIO $ connectTo' 8192 (nodeHost node) (  PortNumber $ fromIntegral $ nodePort node) 
+  liftIO $ SBS.sendMany sock $ BL.toChunks $ BS.pack $ restmsg 
+  return () !> "after send"
+  str  <- liftIO $ SBSL.getContents sock
+
+  setParseString str
+
+  headers <- getHeaders
+  setState $ HTTPHeaders headers
+  case lookup "Transfer-Encoding" headers of
+    Just "chunked" -> (dechunk |- ((many $ decodeIt) >>= choose))
+    
+    _ ->  
+         case fmap (read . BC.unpack) $ lookup "Content-Length" headers  of
+
+           Just length -> do
+                 msg <- tTake length 
+                 return $ deserialize' msg 
+           _ -> decodeIt
+  where
+  deserialize' msg= case deserialize msg !> ("msg",msg)  of
+                     Nothing -> error "callRestService : type mismatch" 
+                     Just (x,_)  ->  x
+  jsonDelimit= return "{" <> (braces $ chainMany mappend1 (dropSpaces >> (jsonDelimit <|> elemString))) <> return "}"
+  elemString= (dropSpaces >> tTakeWhile (\c -> c /= '}' && not ( isSpace c)))
+  mappend1 a b= a <> " " <> b
+ 
+ 
+  decodeIt= jsonDelimit >>= return . deserialize'
+  
+hex= withData $ \s -> if BS.null s then empty else
+                        let h= BS.head s 
+                            t= BS.tail s
+                        in if h >= '0' && h <= '9' then return(ord(h) -ord '0',t)
+                           else if h >= 'A' && h <= 'F' then return(ord h -ord 'A' +10,t)
+                           else empty
+            
+numChars= do l <- hex ; tDrop 2 >> return l !> l
+
+dechunk= do
+       n<- numChars 
+       r <- tTake $ fromIntegral n
+       return () !> "drop"
+       tDropUntilToken "\r\n"
+       return () !> "SMORE"
+       return $ SMore r  
+       
+   <|> return SDone
+
+#endif
+ 
