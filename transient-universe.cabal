@@ -1,5 +1,5 @@
 name: transient-universe
-version: 0.5.0.1
+version: 0.5.1
 cabal-version: >=1.10
 build-type: Simple
 license: MIT
@@ -14,18 +14,19 @@ category: Control, Distributed Computing
 author: Alberto G. Corona
 extra-source-files:
     ChangeLog.md README.md
-    app/client/Transient/Move/Services/MonitorService.hs
+    app/client/Transient/Move/Services/void.hs
     app/server/Transient/Move/Services/MonitorService.hs
+        app/server/Transient/Move/Services/executor.hs
 
 source-repository head
     type: git
     location: https://github.com/transient-haskell/transient-universe
 
 library
-
+    
     if !impl(ghcjs >=0.1)
         exposed-modules:
-            Transient.Move.Services
+            Transient.Move.Services.Executor
 
     if impl(ghcjs >=0.1)
         build-depends:
@@ -57,6 +58,7 @@ library
         Transient.MapReduce
         Transient.Move.Internals
         Transient.Move.Utils
+        Transient.Move.Services
     build-depends:
         base >4 && <5,
         bytestring -any,
@@ -100,7 +102,8 @@ executable executor
             transient >= 0.6.0.0,
             transient-universe,
             process,
-            directory
+            directory,
+            aeson
         hs-source-dirs: app/server/Transient/Move/Services
         main-is: executor.hs
     else
@@ -175,7 +178,8 @@ test-suite test-transient
             websockets -any,
             network-uri -any,
             case-insensitive -any,
-            hashable -any
+            hashable -any,
+            aeson
     type: exitcode-stdio-1.0
     main-is: TestSuite.hs
     build-depends:
