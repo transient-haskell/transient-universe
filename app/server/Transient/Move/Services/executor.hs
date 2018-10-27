@@ -20,7 +20,7 @@ import Transient.Move.Internals
 import Transient.Move.Utils
 import Transient.Logged(maybeFromIDyn)
 import Transient.Move.Services
-import Transient.Move.Services.Executor
+prokimport Transient.Move.Services.Executor
 import Control.Applicative
 import Control.Monad.IO.Class
 import Control.Exception(SomeException(..),catch)

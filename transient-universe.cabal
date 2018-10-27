@@ -48,7 +48,8 @@ library
             websockets -any,
             process -any,
             random -any,
-            text -any
+            text -any,
+            aeson -any
             
 
     exposed-modules:
@@ -138,7 +139,8 @@ executable test-transient1
             websockets -any,
             network-uri -any,
             case-insensitive -any,
-            hashable -any
+            hashable -any,
+            aeson
             
     main-is: TestSuite.hs
     build-depends:
