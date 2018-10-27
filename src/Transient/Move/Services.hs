@@ -11,24 +11,41 @@
 -- |
 --
 -----------------------------------------------------------------------------
-{-# LANGUAGE ScopedTypeVariables, CPP, FlexibleInstances, UndecidableInstances #-}
+{-# LANGUAGE ScopedTypeVariables, CPP, FlexibleInstances, FlexibleContexts, UndecidableInstances, RecordWildCards, MultiParamTypeClasses #-}
 
+{-
+TODO:
+ service=[("runsource", "this")]
+ 
+    send the execution arguments, the source code to all monitors
+    compile it using the command arguments
+    find the host:port and set up them for each node
+
+generate a web interface for each service:
+   get the type of the argument
+   parse the type and generate axiom source code.
+-}
+
+-- #ifndef ghcjs_HOST_OS
+
+module Transient.Move.Services(
+callService, callService',runService,callServiceFail, initService,serve,ping,freePort
+,authorizeService, monitorNode, monitorService, findInNodes, endMonitor
 #ifndef ghcjs_HOST_OS
-
-module Transient.Move.Services  where
+,requestInstance,requestInstanceFail,requestInstanceHost
+#endif
+)  where 
 
 import Transient.Internals
 import Transient.Logged
 import Transient.Move.Internals
--- import Transient.Backtrack
--- import Transient.Internals(RemoteStatus(..), Log(..))
 import Transient.Move.Utils
 
 import Control.Monad.State
 import System.IO.Unsafe
 import Control.Concurrent.MVar
 import Control.Applicative
-import System.Process
+
 import Control.Concurrent(threadDelay)
 import Control.Exception hiding(onException)
 import Data.IORef
@@ -37,6 +54,18 @@ import Data.Typeable
 import System.Random
 import Data.Maybe (fromMaybe)
 import qualified Data.Map as M
+import System.Environment
+import Data.List(isPrefixOf)
+import Unsafe.Coerce
+import Data.Monoid 
+
+
+
+
+#ifndef ghcjs_HOST_OS
+import System.Process
+#endif 
+
 monitorService= [("service","monitor")
                 ,("executable", "monitorService")
                 ,("package","https://github.com/transient-haskell/transient-universe")]
@@ -44,13 +73,13 @@ monitorService= [("service","monitor")
 
 monitorPort= 3000
 
+#ifndef ghcjs_HOST_OS
+
 reInitService :: String -> Node -> Cloud Node
-reInitService  ident node= loggedc $
-  cached <|> installIt
+reInitService  ident node= loggedc $ cached <|> installIt
     where
     cached= local $ do
         ns <- findInNodes $ nodeServices node 
-
         if null ns then  empty
          else do
           ind <- liftIO $ randomRIO(0,length ns-1)
@@ -63,15 +92,23 @@ reInitService  ident node= loggedc $
 -- | initService search for any node in the list of nodes that the local node may know, for that service, instead of calling
 -- the monitor. if there is no such node, it request an instance from the monitor `requestInstance`. `initService` is used by `callService`
 initService :: String -> Service -> Cloud Node
-initService ident service= loggedc $
- cached <|> installIt
+initService ident service= loggedc $   cached  <|> installed  <|>  installIt
     where
+    installed= local $ do
+         --if has host-port key it has been installed manually
+         host <- emptyIfNothing $ lookup "nodehost" service
+         port <- emptyIfNothing $ lookup "nodeport" service
+         node <- liftIO $ createNodeServ host (read' port) service
+         addNodes [node]
+         return node
+         
     cached= local $ do
         ns <- findInNodes service 
         if null ns then  empty
          else do
           ind <- liftIO $ randomRIO(0,length ns-1)
           return $  ns !! ind
+          
     installIt= do                               -- TODO block by service name, to avoid  double initializations
         ns <- requestInstance ident service 1 
         if null ns then empty else return $ head ns
@@ -101,24 +138,20 @@ requestInstanceHost ident hostname service= do
             monitorService
     nodes@[node] <- callService' ident monitorHost  (ident,service, 1::Int)
     local $ addNodes nodes
-    return node 
+    return node
 
 requestInstanceFail :: String -> Node -> Int -> Cloud [Node]
 requestInstanceFail ident node num=  loggedc $ do
        return () !> "REQUEST INSTANCEFAIL"
        local $ delNodes [node]
-       local $ onException $ \(e:: ConnectionError) ->  startMonitor >> continue      !> ("EXCEPTIOOOOOOOOOOON",e)
+       local $ onException $ \(e:: ConnectionError) ->  do
+           liftIO $ putStrLn "Monitor was not running. STARTING MONITOR"
+           startMonitor >> continue      !> ("EXCEPTIOOOOOOOOOOON",e)
        
        nodes <- callService' ident monitorNode (ident,node, num )                    !> "CALLSERVICE'"
        local $ addNodes nodes                                                        !> ("ADDNODES")
        return nodes
 
-
-sendStatusToMonitor :: String -> String -> Cloud ()
-sendStatusToMonitor ident status= loggedc $ do
-       local $ onException $ \(e:: ConnectionError) ->  startMonitor >> continue    -- !> ("EXCEPTIOOOOOOOOOOON",e)
-       nod <- local getMyNode
-       callService'  ident monitorNode (nodePort nod, status) -- <|> return()
 
 rmonitor= unsafePerformIO $ newMVar ()  -- to avoid races starting the monitor
 startMonitor :: MonadIO m => m ()
@@ -157,7 +190,8 @@ rservices       =   unsafePerformIO $ newIORef ([] ::[Service])
 ridentsBanned   =   unsafePerformIO $ newIORef ([] ::[String])
 rServicesBanned =   unsafePerformIO $ newIORef ([] ::[Service])
 
-inputAuthorizations= local $ do
+inputAuthorizations :: Cloud ()
+inputAuthorizations=  onServer $ Cloud $ do
     abduce
     oneThread $ option "auth" "add authorizations for users and services"
     showPerm <|> friends <|> services <|> identBanned <|> servicesBanned
@@ -220,14 +254,43 @@ authorizeService ident service=   do
   where
   notElem a b= not $ elem a b
 
+
+runEmbeddedService :: (Loggable a, Loggable b) =>  Service -> (a -> Cloud b) -> Cloud b
+runEmbeddedService servname serv =  do
+   node <- localIO $ do
+          port <- freePort
+          createNodeServ "localhost" (fromIntegral port) servname
+   listen node
+   wormhole (notused 4) $ loggedc $ do
+      x <- local $ return (notused 0)
+      r <- onAll $ runCloud (serv x) <** setData WasRemote
+      local $ return r
+      teleport
+      return r
+
+#endif
+
 -- | call a service. If the service is not running in some node, the monitor service would install
 -- and run it. The first parameter is a weak password.
+
+#ifndef ghcjs_HOST_OS
+callService
+    :: (Subst1 a String,Loggable a,Loggable1 a, Loggable1 b,Loggable b)
+    => String -> Service -> a  -> Cloud b
+callService ident service params = loggedc $ do 
+    node <-  initService ident service        !> ("callservice initservice", service)
+    let type1 = fromMaybe "" $ lookup "type" service
+    if type1=="HTTP" 
+      then do
+          callstr <- local $ emptyIfNothing $ lookup "HTTPstr" service
+          callRestService node callstr params
+      else callService' ident node params            !> ("NODE FOR SERVICE",node)
+#else
 callService
     :: (Loggable a, Loggable b)
     => String -> Service -> a  -> Cloud b
-callService ident service params = do
-    node <-  initService ident service        !> ("callservice initservice", service)
-    callService' ident node params            !>  ("NODE FOR SERVICE",node)
+callService ident service params = local $ empty
+#endif
 
 -- | notify the the monitor that a node has failed for a service and reclaim another
 -- to execute the request. If the service is not running in some node, the monitor service would install
@@ -235,10 +298,13 @@ callService ident service params = do
 callServiceFail
     :: (Loggable a, Loggable b)
     => String -> Node -> a  -> Cloud b
-callServiceFail ident node params = do
+#ifndef ghcjs_HOST_OS
+callServiceFail ident node params = loggedc $ do
     node <- reInitService ident node     
     callService' ident node params
-
+#else
+callServiceFail ident node params = local empty
+#endif
 
 monitorNode= unsafePerformIO $ createNodeServ "localhost"
             (fromIntegral monitorPort)
@@ -247,17 +313,31 @@ monitorNode= unsafePerformIO $ createNodeServ "localhost"
 
 -- | call a service located in a node
 callService' :: (Loggable a, Loggable b) => String -> Node -> a -> Cloud b 
+#ifndef ghcjs_HOST_OS
 callService' ident node params = r
  where 
  r= loggedc $ do
-    onAll abduce
-             
-    service 
+    onAll $ abduce
+    my <- onAll getMyNode    -- to force connection when calling himself
+    if node== my 
+      then do
+  --      when (node== my) $ 
+  --              liftIO $ modifyMVar_ (fromMaybe (error "callService: no connection") $  connection my) $ const $ return []
+
+          svs <- onAll $ liftIO $ readIORef selfServices
+          d <- svs $ toIDyn params 
+          return $ fromIDyn d
+      else do
+
+
+            localFixServ True
+            local $ return ()      
+            service 
     
     where
     service = do
 
-      localFixServ True
+
      
       mr <- wormhole node $  do
 
@@ -290,77 +370,82 @@ callService' ident node params = r
        let newlog= reverse logw' ++ logw
 --       return ()                 !> ("newlog", logw,logw')
        setData $ Log False newlog newlog (hash + hash')
+
+#else
+callService' ident node params = local empty
+#endif
+
+sendStatusToMonitor :: String -> String -> Cloud ()
+#ifndef ghcjs_HOST_OS
+sendStatusToMonitor ident status= loggedc $ do
+       local $ onException $ \(e:: ConnectionError) ->  startMonitor >> continue    -- !> ("EXCEPTIOOOOOOOOOOON",e)
+       nod <- local getMyNode
+       callService'  ident monitorNode (nodePort nod, status) -- <|> return()
+#else
+sendStatusToMonitor ident status= local $ return ()
+
+inputAuthorizations :: Cloud ()
+inputAuthorizations= empty
+#endif
+
+
 emptyLog= Log False [] [] 0
 
 catchc :: Exception e => Cloud a -> (e -> Cloud a) -> Cloud a
 catchc a b= Cloud $ catcht (runCloud' a) (\e -> runCloud' $ b e)
 
-runEmbeddedService :: (Loggable a, Loggable b) =>  Service -> (a -> Cloud b) -> Cloud b
-runEmbeddedService servname serv =  do
-   node <- localIO $ do
-          port <- freePort
-          createNodeServ "localhost" (fromIntegral port) servname
-   listen node
-   wormhole (notused 4) $ loggedc $ do
-      x <- local $ return (notused 0)
-      r <- onAll $ runCloud (serv x) <** setData WasRemote
-      local $ return r
-      teleport
-      return r
 
-
-
+selfServices= unsafePerformIO $ newIORef $ const empty
 notused n= error $  "runService: "++ show (n::Int) ++ " variable should not be used"
 
--- | executes a program that export a service/services.
+-- | executes a program that export endpoints that can be called with `callService` primitives.
 -- It receives the service description, a default port, the services to set up and the computation to start.
 -- for example the monitor exposes two services, and is started with:
 --
--- >  main = keep . runCloud $ runService monitorService 3000 $
+-- >  main = runService monitorService 3000 $
 -- >                       [serve returnInstances
 -- >                       ,serve addToLog] pings
 --
--- every service executable incorporates a ping service and a error service, invoqued when the parameter received
+-- every service incorporates a ping service and a error service, invoqued when the parameter received
 -- do not match with any of the endpoints implemented.
-runService :: Service -> Int -> [(IDynamic -> Cloud IDynamic)] -> Cloud () -> Cloud ( IDynamic)
-runService servDesc defPort servs proc= runService' servDesc defPort serv1  proc
+runService :: Service -> Int -> [(IDynamic -> Cloud IDynamic)] -> Cloud () -> TransIO ( IDynamic)
+runService servDesc defPort servs proc= runCloud $ 
+   runService' servDesc defPort servAll  proc
    where 
-   --serv1 :: IDynamic -> Cloud IDynamic
-   serv1 d =  foldr  (<|>) empty $ map (\f ->  f d) $ servs ++ [serve ping ,serve serveerror]
-   --init :: String -> Cloud ()
-   --init= const proc
+
+   servAll d =  foldr  (<|>) empty $ map (\f ->  f d) $ servs ++ [serve ping , serveerror]
+
    ping :: () -> Cloud ()
    ping = const $ return() !> "PING"
-   
 
-   
-   serveerror d= localIO $  
-       print $ "parameter mismatch calling service  (parameter,service): "++ show (d :: IDynamic,servDesc)
+   serveerror d= empty -- localIO $  do
+      -- error $  "parameter mismatch calling service  (parameter,service): "++ show (d :: IDynamic,servDesc)
+      --  empty
 
 
 
    runService' :: Service -> Int -> (IDynamic -> Cloud IDynamic) -> Cloud() -> Cloud (  IDynamic)
-   runService' servDesc defPort serv proc=  do
-       onAll $ onException $ \(e :: SomeException) -> liftIO $ print e
-
-       initNodeServ servDesc 
-       return () !> "INITTTTTT"
+   runService' servDesc defPort servAll proc=  do
+   {-
+       onAll $ onException $ \(e :: SomeException) -> runCloud $ do
+                   localIO $ print ("SENDSTATUSTO MONITOR",e)
+                   node <-  local getMyNode
+                   sendStatusToMonitor "" $ show e
+-}
+       onAll $ liftIO $ writeIORef selfServices servAll
+       serverNode <- initNodeServ servDesc 
+       wormhole serverNode $ inputNodes <|> proc >> empty >> return()
        services  
 
        where
-     {-  mainProc  = loggedc $ do
-
-          proc
-          empty
-         <** setState WasRemote
-         -} 
-          
+       
        services= do
-          onAll abduce
+
           wormhole (notused 1) $  do
-              x <- local . return $ notused 2
-    
-              r <- local $  runCloud' $  serv1 x --  <** setData WasRemote
+--              onAll reportBack
+              x <- local $ (return $ notused 2) 
+              Closure closRemote <- getData `onNothing` onAll (do liftIO $ print "teleport: no closRemote"; empty)
+              r <- loggedc $ servAll' x  
               return () !> ("SENDING",r)
               setData emptyLog
               local $ return r
@@ -368,11 +453,15 @@ runService servDesc defPort servs proc= runService' servDesc defPort serv1  proc
               
               return r
           where
-          serv1 x= serv x
+          
+          servAll' x= servAll x
+
               `catchc` \(e:: SomeException ) -> do
                    return () !> ("ERRORRRRRR:",e)
                    node <- local getMyNode
                    sendStatusToMonitor "" $ show e
+
+
                    local $ do
                       Closure closRemote <- getData `onNothing` error "teleport: no closRemote"
                       conn <- getData `onNothing` error "reportBack: No connection defined: use wormhole"
@@ -380,30 +469,46 @@ runService servDesc defPort servs proc= runService' servDesc defPort serv1  proc
                       empty
 
 
-       emptyLog= Log False [] [] 0
 
-       initNodeServ  servs=do
-          mynode <- local  getNode
 
-          local $ do
-             conn <- defConnection
-             liftIO $ writeIORef (myNode conn) mynode
+       initNodeServ servs=do
+          (mynode,serverNode) <- onAll $ do
+            node <- getNode "localhost" defPort servDesc 
+            addNodes  [node]
+            serverNode <- getWebServerNode 
+            mynode <- if isBrowserInstance
+                      then  do
+                        addNodes [serverNode]
+                        return node
+                      else return serverNode
+
+            conn <- defConnection
+            liftIO $ writeIORef (myNode conn) mynode
              
-             setState conn
+            setState conn
+            return (mynode,serverNode)
              
-          inputAuthorizations <|> (inputNodes >> empty) <|> return ()
-          listen mynode 
+          inputAuthorizations <|> return ()
+          listen mynode <|> return ()
+          return serverNode
     
           where
-          getNode :: TransIO Node
-          getNode =  if isBrowserInstance then liftIO createWebNode else do
-              oneThread $ option "start" "re/start node"
-              host <- input' (Just "localhost") (const True) "hostname of this node (must be reachable) (\"localhost\"): "
-              port <- input' (Just 3000) (const True)  "port to listen? (3000) "
-              liftIO $ createNodeServ host port servs
-    
+          
+          -- getNode :: TransIO Node
+          getNode host port servs= def <|> getNodeParams
+              where
+              def= do
+                    args <- liftIO  getArgs
+                    if null args then liftIO $ createNode host port else empty
+              getNodeParams=  
+                if isBrowserInstance then liftIO createWebNode else do
+                  oneThread $ option "start" "re/start node"
+                  host <- input' (Just "localhost") (const True) "hostname of this node (must be reachable) (\"localhost\"): "
+                  port <- input' (Just 3000) (const True)  "port to listen? (3000) "
+                  liftIO $ createNodeServ host port servs
+    {-
           inputNodes= onServer $ local $ do
-                      abduce
+                      
                       
                       option "add"  "add a new service node"
     
@@ -413,12 +518,14 @@ runService servDesc defPort servs proc= runService' servDesc defPort serv1  proc
     
                       port <-  input (const True) "port? "
     
-                      nnode <- liftIO $ createNodeServ host port monitorService
+                      nnode <- liftIO $ createNodeServ host port servDesc
 
                       liftIO $ putStr "Added node: ">> print nnode
                       addNodes [nnode]
                       empty
                       return()
+                      -}
+
 
 -- | ping a service in a node. since services now try in other nodes created by the monitor until  succees, ping can be
 -- used to preemptively assure that there is a node ready for the service.
@@ -426,65 +533,117 @@ ping node= callService' "" node ()  :: Cloud ()
 
 -- | encode and decode parameters from/to the individual services. a service within a program is invoked if the types of
 -- the parameters received match with what the service expect. See `runService` for a usage example
-serve :: (Loggable a, Loggable b) => (a -> Cloud b) -> IDynamic ->   Cloud IDynamic
+serve :: (Loggable a, Loggable b) => (a -> Cloud b) -> IDynamic -> Cloud IDynamic
 serve f d = do
        return () !> ("MAYBEFROMIDYN", typeOf f,d)
 
        case maybeFromIDyn d of
          Nothing -> empty
-         Just x  -> toIDyn <$> f x --  (f x <** setState WasRemote)
-
-executorService = [("service","executor")
-                  ,("executable", "executor")
-                  ,("package","https://github.com/transient-haskell/transient-universe")]
+         Just x  -> toIDyn <$> f x -- (f x <** setState WasRemote)
 
 
+#ifndef ghcjs_HOST_OS 
 
--- initialize N instances, of the executor service. The monitor would spread them among the nodes available.
--- the number N should be less of equal than the number of phisical machines.
--- Since the executor serivice can execute any number of processes, it sould be at most one per machine. 
-initExecute ident number=    requestInstance  ident executorService  number
 
--- | execute a command in some node by an executor service, and return the result when the program finishes
-networkExecute :: String -> String -> String ->  Cloud String
-networkExecute ident cmdline input= 
-     callService ident executorService (cmdline, input,())
-     
+-- callRestService :: (Subst1 a String, fromJSON b) =>  Node -> String -> a -> Cloud ( BS.ByteString)
+callRestService node callString vars=  local $ do
+  newVar "hostnode"  $ nodeHost node
+  newVar "hostport"  $ nodePort node
+  let calls = subst callString vars
+  restmsg <- replaceVars calls
+  return () !> ("restmsg",restmsg)
+  rawREST node  restmsg
+  
+-------------------cloudshell vars -------------------------
+data LocalVars = LocalVars (M.Map String String) deriving (Typeable, Read, Show)
 
--- | execute a shell command in some node using the executor service. 
--- The response is received as an stream of responses, one per line
 
-networkExecuteStream :: String -> String -> Cloud String      -- '[Multithreaded,Streaming]
-networkExecuteStream ident cmdline= do
+newVar :: (Show a, Typeable a) => String -> a -> TransIO () 
+newVar  name val= noTrans $ do 
+   LocalVars map <- getData `onNothing` return (LocalVars M.empty)
+   setState $ LocalVars $ M.insert  name (show1 val) map
 
-    -- callService ident executorService cmdline
-     node <- initService ident executorService
-     localIO $ atomicModifyIORef rnodecmd $ \map -> (M.insert cmdline node map,())
-     return () !> ("STORED NODE", node)
-     callService' ident node cmdline
+replaceVars :: String -> TransIO String
+replaceVars []= return []
+replaceVars ('$':str)= do
+   LocalVars localvars <- getState <|> return (LocalVars M.empty)
+   let (var,rest')= break (\c -> c=='-' || c==' ' ||  c=='\r' || c == '\n' ) str
+       (manifest, rest)= if null rest' || head rest'=='-' 
+            then  break (\c -> c=='\r' || c =='\n' || c==' ') $ tailSafe rest'
+            else  ("", rest')
 
-rnodecmd= unsafePerformIO $ newIORef M.empty
+   if var== "port"&& null manifest then (++) <$> (show <$> freePort) <*> replaceVars rest   -- $host variable
+   else if var== "host" && null manifest then (++) <$> (nodeHost <$> getMyNode) <*> replaceVars rest
+   else if null manifest  then
+      case M.lookup var localvars of
+          Just v -> do 
+              v' <- processVar v
+              (++) <$> return (show1 v') <*> replaceVars rest
+          Nothing -> (:) <$> return '$' <*> replaceVars rest 
+   else do
+      map <- liftIO $ readFile manifest >>= return . toMap
+      let mval = lookup var map 
+      case mval of 
+        Nothing -> error $ "Not found variable: "++ "$" ++ var ++ manifest 
+        Just val -> (++) <$> return val <*> replaceVars rest
+   where
+   tailSafe []=[]
+   tailSafe xs= tail xs
+   
+   processVar= return . id
+   
+   toMap :: String -> [(String, String)]
+   toMap desc= map break1 $ lines desc
+     where
+     break1 line=
+        let (k,v1)= break (== ' ') line
+        in (k,dropWhile (== ' ') v1)
 
--- | send a message that will be read by the standard input of the program initiated by `networkExecuteStream`, identified by the command line.
--- the stream of responses is returned by that primitive. `sendExecuteStream` never return anything, since it is asynchronous
-sendExecuteStream :: String -> String -> String -> Cloud  ()  -- '[Asynchronous]
-sendExecuteStream ident cmdline msg=  do
-     -- callService ident executorService (cmdline, msg) 
-     return () !> ("SENDEXECUTE", cmdline)
-     node <- localIO $ do
-       map <- readIORef rnodecmd 
-       let mn = M.lookup cmdline map 
-       case mn of
-         Nothing ->  error $ "sendExecuteStream: no node executing the command: "++ cmdline
-         Just n -> return n
-     return () !> ("NODE", node)
-     callService' ident node (cmdline, msg)
-     
-     
+replaceVars (x:xs) = (:) <$> return x <*> replaceVars xs 
 
-#else
-requestInstance :: String -> Service -> Int -> Cloud [Node]
-requestInstance ident service num= logged empty
+---------------- substitution ---------------------------------------------
+
+subst :: Subst1 a r => String -> a -> r
+subst expr= subst1 expr 1
+
+
+class Subst1 a r where 
+    subst1 :: String -> Int -> a -> r
+
+   
+instance (Show b, Typeable b, Subst1 a r) => Subst1 b (a -> r) where
+    subst1 str n x = \a -> subst1 (subst1 str n x) (n+1) a
+
+instance {-# Overlaps #-} (Show a,Typeable a, Show b, Typeable b) => Subst1 (a,b) String where
+    subst1 str n (x,y)= subst str x y
+    
+instance {-# Overlaps #-} (Show a,Typeable a, Show b, Typeable b
+                          ,Show c, Typeable c) => Subst1 (a,b,c) String where
+    subst1 str n (x,y,z)= subst str x y z
+    
+instance {-# Overlaps #-} (Show a,Typeable a, Show b, Typeable b
+                          ,Show c,Typeable c, Show d, Typeable d) 
+                           => Subst1 (a,b,c,d) String where
+    subst1 str n (x,y,z,t)= subst str x y z t
+    
+
+instance {-# Overlaps #-}  (Show a,Typeable a) => Subst1 a String where
+     subst1 str n x= subst2 str n x 
+    
+subst2 str n x=  replaces str ('$' : show n ) x
+
+replaces str var x= replace var (show1 x) str  
+
+replace _ _ [] = []
+replace a b s@(x:xs) = 
+                   if isPrefixOf a s
+                            then b++replace a b (drop (length a) s)
+                            else x:replace a b xs
+
+
+
+
+show1 :: (Show a, Typeable a) => a -> String     
+show1 x | typeOf x == typeOf (""::String)= unsafeCoerce x 
+          | otherwise= show x 
 #endif
-
-
