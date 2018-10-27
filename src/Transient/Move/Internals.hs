@@ -119,7 +119,11 @@ instance Ord Node where
 
 -- The cloud monad is a thin layer over Transient in order to make sure that the type system
 -- forces the logging of intermediate results
-newtype Cloud a= Cloud {runCloud' ::TransIO a} deriving (AdditionalOperators,Functor,Monoid,Applicative,Alternative, Monad, Num, Fractional, MonadState EventF)
+newtype Cloud a= Cloud {runCloud' ::TransIO a} deriving (AdditionalOperators,Functor,
+#if MIN_VERSION_base(4,11,0) 
+                   Semigroup,
+#endif
+                   Monoid,Applicative,Alternative, Monad, Num, Fractional, MonadState EventF)
 
 
 
