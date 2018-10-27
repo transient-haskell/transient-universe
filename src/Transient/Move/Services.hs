@@ -29,10 +29,11 @@ generate a web interface for each service:
 -- #ifndef ghcjs_HOST_OS
 
 module Transient.Move.Services(
-callService, callService',runService,callServiceFail, initService,serve,ping,freePort
-,authorizeService, monitorNode, monitorService, findInNodes, endMonitor
+callService, callService',runService,callServiceFail,serve,ping
+, monitorNode, monitorService
 #ifndef ghcjs_HOST_OS
-,requestInstance,requestInstanceFail,requestInstanceHost
+,initService,authorizeService,requestInstance,requestInstanceFail,requestInstanceHost
+,findInNodes,endMonitor,freePort
 #endif
 )  where 
 

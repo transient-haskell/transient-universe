@@ -30,7 +30,10 @@ library
 
     if impl(ghcjs >=0.1)
         build-depends:
-            ghcjs-base -any,
+            -- ghcjs-base should be installed with
+            -- > git clone https://github.com/ghcjs/ghcjs-base
+            -- > cabal install --ghcjs --constraint 'primitive < 0.6.4'
+            ghcjs-base -any,  
             ghcjs-prim -any,
             random -any
     else
@@ -50,7 +53,8 @@ library
             process -any,
             random -any,
             text -any,
-            aeson -any
+            aeson -any,
+            primitive < 0.6.4.0
             
 
     exposed-modules:
