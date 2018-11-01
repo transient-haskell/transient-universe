@@ -164,9 +164,9 @@ startMonitor = (liftIO $ do
         writeIORef monitorHandle $ Just h
         putMVar rmonitor ()
     threadDelay 2000000) 
-  `catcht` \(_ :: SomeException) -> do
-        liftIO $ print "'monitorService' binary should be in some folder included in the $PATH variable. aborted computation"
-        empty
+ -- `catcht` \(_ :: SomeException) -> do
+ --       liftIO $ print "'monitorService' binary should be in some folder included in the $PATH variable. aborted computation"
+ --       empty
 monitorHandle= unsafePerformIO $ newIORef Nothing
 
 endMonitor= do
