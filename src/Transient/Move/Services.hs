@@ -1,4 +1,4 @@
------------------------------------------------------------------------------
+ -----------------------------------------------------------------------------
 --
 -- Module      :  Transient.Move.Services
 -- Copyright   :
@@ -155,17 +155,18 @@ requestInstanceFail ident node num=  loggedc $ do
 
 
 rmonitor= unsafePerformIO $ newMVar ()  -- to avoid races starting the monitor
-startMonitor :: MonadIO m => m ()
-startMonitor = liftIO $ do
+startMonitor :: TransIO () 
+startMonitor = (liftIO $ do
     return () !> "START MONITOR"
     b <- tryTakeMVar rmonitor
     when (b== Just()) $ do
         (_,_,_,h) <- createProcess . shell $ "monitorService -p start/localhost/"++ show monitorPort ++ " > monitor.log 2>&1"
         writeIORef monitorHandle $ Just h
         putMVar rmonitor ()
-    threadDelay 2000000
-    
-
+    threadDelay 2000000) 
+  `catcht` \(_ :: SomeException) -> do
+        liftIO $ print "'monitorService' binary should be in some folder included in the $PATH variable. aborted computation"
+        empty
 monitorHandle= unsafePerformIO $ newIORef Nothing
 
 endMonitor= do

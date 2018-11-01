@@ -21,18 +21,11 @@ import Control.Exception hiding (onException)
 {-  
  example record updates, distributed database?
  connect. Un servicio para conectar añadir instancias?
- problem ps
- self invocations x
-  
- unify throw cloudExceptions x
+ 
+ 
  connect created instances 
        connectNode as service.
- perform request to N nodes, call additional nodes if anyone fail.
- services for web nodes x
 
-REST serv as a transient service: restservice string (a,b,c,POST d,e) serializar a string ->     /a/b/e  BODY d
-     callService con [type, REST] lo transforma
-     allocate with monitor: Just compile and execute. no ping
      
 a transient service as REST service: in the http treatment in listen: /a/b/c/d -> (a,b,c,d)
 
