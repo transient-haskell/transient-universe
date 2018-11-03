@@ -1,4 +1,5 @@
- -----------------------------------------------------------------------------
+
+              -----------------------------------------------------------------------------
 --
 -- Module      :  Transient.Move.Services
 -- Copyright   :
@@ -59,6 +60,7 @@ import System.Environment
 import Data.List(isPrefixOf)
 import Unsafe.Coerce
 import Data.Monoid 
+import System.Directory
 
 
 
@@ -115,7 +117,7 @@ initService ident service= loggedc $   cached  <|> installed  <|>  installIt
         if null ns then empty else return $ head ns
 
 -- |  receives the specification of a service and install (if necessary) and run it (if necessary)
---    if the service has been started previously, it returns the node immediately.
+--    if the servi ce has been started previously, it returns the node immediately.
 -- if the monitor service executable is not running `requestInstace` initiates it.
 -- Instances are provisioned  among the available nodes
 -- The returned nodes are added to the list of known nodes.
@@ -124,10 +126,9 @@ requestInstance :: String -> Service -> Int -> Cloud [Node]
 requestInstance ident service num=  loggedc $ do
        local $ onException $ \(e:: ConnectionError) -> do
                   liftIO $ putStrLn "Monitor was not running. STARTING MONITOR"
+                  continue
                   startMonitor
-                  
-                  continue  
-       
+
        nodes <- callService' ident monitorNode (ident,service, num )
        local $ addNodes nodes                                                       -- !> ("ADDNODES",service)
        return nodes
@@ -147,7 +148,8 @@ requestInstanceFail ident node num=  loggedc $ do
        local $ delNodes [node]
        local $ onException $ \(e:: ConnectionError) ->  do
            liftIO $ putStrLn "Monitor was not running. STARTING MONITOR"
-           startMonitor >> continue      !> ("EXCEPTIOOOOOOOOOOON",e)
+           continue
+           startMonitor                                       !> ("EXCEPTIOOOOOOOOOOON",e)
        
        nodes <- callService' ident monitorNode (ident,node, num )                    !> "CALLSERVICE'"
        local $ addNodes nodes                                                        !> ("ADDNODES")
@@ -156,17 +158,23 @@ requestInstanceFail ident node num=  loggedc $ do
 
 rmonitor= unsafePerformIO $ newMVar ()  -- to avoid races starting the monitor
 startMonitor :: TransIO () 
-startMonitor = (liftIO $ do
+startMonitor = ( liftIO $ do
     return () !> "START MONITOR"
     b <- tryTakeMVar rmonitor
     when (b== Just()) $ do
-        (_,_,_,h) <- createProcess . shell $ "monitorService -p start/localhost/"++ show monitorPort ++ " > monitor.log 2>&1"
+
+        r <- findExecutable "monitorService"
+        when ( r == Nothing) $ error "not found"
+        (_,_,_,h) <- (createProcess . shell $ "monitorService -p start/localhost/"++ show monitorPort ++ " > monitor.log 2>&1")
+
         writeIORef monitorHandle $ Just h
         putMVar rmonitor ()
+
     threadDelay 2000000) 
- -- `catcht` \(_ :: SomeException) -> do
- --       liftIO $ print "'monitorService' binary should be in some folder included in the $PATH variable. aborted computation"
- --       empty
+  `catcht` \(e :: SomeException) -> do
+        liftIO $ putStrLn "'monitorService' binary should be in some folder included in the $PATH variable. Computation aborted"
+        empty
+        
 monitorHandle= unsafePerformIO $ newIORef Nothing
 
 endMonitor= do
@@ -380,7 +388,7 @@ callService' ident node params = local empty
 sendStatusToMonitor :: String -> String -> Cloud ()
 #ifndef ghcjs_HOST_OS
 sendStatusToMonitor ident status= loggedc $ do
-       local $ onException $ \(e:: ConnectionError) ->  startMonitor >> continue    -- !> ("EXCEPTIOOOOOOOOOOON",e)
+       local $ onException $ \(e:: ConnectionError) -> continue >>  startMonitor    -- !> ("EXCEPTIOOOOOOOOOOON",e)
        nod <- local getMyNode
        callService'  ident monitorNode (nodePort nod, status) -- <|> return()
 #else
