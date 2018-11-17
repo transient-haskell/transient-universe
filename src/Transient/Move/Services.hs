@@ -60,8 +60,10 @@ import System.Environment
 import Data.List(isPrefixOf)
 import Unsafe.Coerce
 import Data.Monoid 
-import System.Directory
 
+#ifndef ghcjs_HOST_OS
+import System.Directory
+#endif
 
 
 
