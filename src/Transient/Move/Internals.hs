@@ -13,6 +13,7 @@
 -----------------------------------------------------------------------------
 
 
+
 {-# LANGUAGE DeriveDataTypeable , ExistentialQuantification, OverloadedStrings,FlexibleInstances, UndecidableInstances
     ,ScopedTypeVariables, StandaloneDeriving, RecordWildCards, FlexibleContexts, CPP
     ,GeneralizedNewtypeDeriving #-}
@@ -1499,13 +1500,15 @@ listenNew port conn'=  do
         return () !> ("SENT",sent)
         liftIO $ SBSL.send  sserver sent
           -- Connection{connData=Just (Node2Node _ sclient _)} <- getState <|> error "proxy: no connection"
-        onException $ \(e:: SomeException ) -> liftIO $ do 
+         
+
+        (send sclient sserver <|> send sserver sclient)
+            `catcht` \(e:: SomeException ) -> liftIO $ do 
                             putStr "Proxy: " >> print e
                             sClose sserver
                             sClose sclient
                             empty
-
-        send sclient sserver <|> send sserver sclient
+                    
         empty
         where
         send f t= async $ mapData f t
@@ -1516,7 +1519,7 @@ listenNew port conn'=  do
               then sendAll to content >> mapData from to
               else finish
             where
-            finish= sClose from >> sClose to
+            finish=  sClose from >> sClose to
            -- throw $ Finish "finish"
            
 
