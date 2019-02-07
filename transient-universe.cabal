@@ -1,5 +1,5 @@
 name: transient-universe
-version: 0.5.1
+version: 0.5.2
 cabal-version: >=1.10
 build-type: Simple
 license: MIT
@@ -54,8 +54,9 @@ library
             random -any,
             text -any,
             aeson -any,
-            primitive < 0.6.4.0
-            
+            primitive < 0.6.4.0,
+            entropy <= 0.3.6    
+             -- new versions forces the installation of a new cabal version. Tired of that.
 
     exposed-modules:
         Transient.Move
@@ -66,7 +67,7 @@ library
     build-depends:
         base >4 && <5,
         bytestring -any,
-        containers -any,
+        containers,
         mtl -any,
         stm -any,
         time -any,
@@ -84,7 +85,8 @@ executable monitorService
             transient >= 0.6.0.0,
             transient-universe,
             process,
-            directory
+            directory,
+            bytestring
         hs-source-dirs: app/server/Transient/Move/Services
         main-is: MonitorService.hs
     else
@@ -103,11 +105,13 @@ executable executor
         build-depends:
             containers,
             transformers -any,
-            transient >= 0.6.0.0,
+            transient >= 0.6.2,
             transient-universe,
-            process,
+            process >= 1.6.4.0,
             directory,
-            aeson
+            bytestring, 
+            aeson,
+            time
         hs-source-dirs: app/server/Transient/Move/Services
         main-is: executor.hs
     else
@@ -120,6 +124,29 @@ executable executor
     default-language: Haskell2010
     ghc-options: -threaded -rtsopts
 
+executable controlServices
+    if !impl(ghcjs >=0.1)
+        build-depends:
+            containers,
+            transformers -any,
+            transient >= 0.6.2,
+            transient-universe,
+            process >= 1.6.4.0,
+            directory,
+            bytestring, 
+            aeson,
+            time
+        hs-source-dirs: app/server/Transient/Move/Services
+        main-is: controlServices.hs
+    else
+        hs-source-dirs: app/client/Transient/Move/Services
+        main-is: void.hs
+    build-depends:
+        base >4 && <5
+
+
+    default-language: Haskell2010
+    ghc-options: -threaded -rtsopts
 
 executable test-transient1
 

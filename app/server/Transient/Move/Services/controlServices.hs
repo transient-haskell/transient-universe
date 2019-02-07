@@ -18,7 +18,7 @@ import Control.Monad
 import Data.Typeable
 import Data.IORef
 import Control.Concurrent (threadDelay)
-import Control.Monad.State
+import Control.Monad.IO.Class
 import Control.Exception hiding (onException)
 import System.IO.Unsafe
 import Data.Maybe
