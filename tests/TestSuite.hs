@@ -49,7 +49,7 @@ test=  initNodeServ service  "localhost" 8080 $ do
           
           local $ guard (nodePort node0== 8080)       -- only executes in node 8080
 
-          [node1, node2] <- requestInstance "PIN1" service 2 
+          [node1, node2] <- requestInstance service 2 
 
           local ( option "f" "fire")   <|> return ""       -- to repeat the tests,  remove the "exit" at the end 
 
