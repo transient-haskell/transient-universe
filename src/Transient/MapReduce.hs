@@ -187,7 +187,7 @@ mapKey f (DDS mx)= DDS $ loggedc $  do
 
 data ReduceChunk a= EndReduce | Reduce a deriving (Typeable, Read, Show)
 
-boxids= unsafePerformIO $ newIORef 0
+boxids= unsafePerformIO $ newIORef (0 :: Int)
 
 
 reduce ::  (Hashable k,Ord k, Distributable vector a, Loggable k,Loggable a)
@@ -499,14 +499,14 @@ getTempName=  ("DDS" ++) <$> replicateM  5 (randomRIO ('a','z'))
 -- each interval of time,a new DDS is produced.(to be tested)
 streamDDS
   :: (Loggable a, Distributable vector a) =>
-     Integer -> IO (StreamData a) -> DDS (vector a)
+     Int -> IO (StreamData a) -> DDS (vector a)
 streamDDS time io= DDS $ do
      xs <- local . groupByTime time $ do
                r <- parallel io
                case r of
                     SDone -> empty
-                    SLast x -> return x
-                    SMore x -> return x
+                    SLast x -> return [x]
+                    SMore x -> return [x]
                     SError e -> error $ show e
      distribute'  $ Transient.MapReduce.fromList xs
 
