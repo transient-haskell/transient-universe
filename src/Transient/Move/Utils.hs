@@ -109,7 +109,7 @@ inputNodes= onServer $ do
                           if r ==  "" then stop else return r
 
           port      <- local $ input (const True) "port? "
-          serv <- nodeServices <$> local getMyNode 
+          serv <- local $ nodeServices <$> getMyNode 
           services  <- local $ input' (Just serv) (const True) ("services? ("++ show serv ++ ") ")
 
           connectit <- local $ input (\x -> x=="y" || x== "n") "connect to the node to interchange node lists? (n) "
@@ -122,9 +122,15 @@ inputNodes= onServer $ do
 
   listNodes=  do
           local $ option "list" "list nodes"
-          local $ getNodes >>= liftIO . print
+          local $ do
+             nodes <- getNodes
+             liftIO $ putStrLn "list of nodes known in this node:"
+             liftIO $ mapM  (\(i,n) -> do putStr (show i); putChar('\t'); print n) $ zip [0..] nodes
           empty
+     
+    
 
+       
 -- | executes the application in the server and the Web browser.
 -- the browser must point to http://hostname:port where port is the first parameter.
 -- It creates a wormhole to the server.
