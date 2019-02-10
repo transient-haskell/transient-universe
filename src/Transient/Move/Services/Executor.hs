@@ -69,23 +69,25 @@ sendExecuteStream :: String -> String -> Cloud  ()  -- '[Asynchronous]
 sendExecuteStream  cmdline msg=  do
 
      return () !> ("SENDEXECUTE", cmdline)
-     node <- localIO $ do
-       map <- readIORef rnodecmd 
-       let mn = M.lookup cmdline map 
-       case mn of
-         Nothing ->  error $ "sendExecuteStream: no node executing the command: "++ cmdline
-         Just n -> return n
+     node <- nodeForProcess cmdline
+      --localIO $ do
+      -- map <- readIORef rnodecmd 
+      -- let mn = M.lookup cmdline map 
+      -- case mn of
+      --   Nothing ->  error $ "sendExecuteStream: no node executing the command: "++ cmdline
+      --   Just n -> return n
      return () !> ("NODE", node)
      callService'  node (cmdline, msg)
      
      
 controlNodeProcess cmdline= do
-      exnode <-local $ do
-            map <- liftIO $ readIORef rnodecmd 
-            let mn = M.lookup cmdline map 
-            return $ case mn of
-                   Nothing ->  error $ "sendExecuteStream: no node executing the command: "++ cmdline
-                   Just n ->   n
+      exnode <- nodeForProcess cmdline
+        --local $ do
+        --    map <-  readIORef rinput 
+        --    let mn = M.lookup cmdline map 
+        --    return $ case mn of
+        --           Nothing ->  error $ "sendExecuteStream: no node executing the command: "++ cmdline
+        --           Just n ->   n
                    
       send exnode  <|>  receive exnode
       where
@@ -156,3 +158,45 @@ data    GetProcesses= GetProcesses deriving (Read, Show, Typeable)
 
 getProcesses ::  Node -> Cloud [String]
 getProcesses node= callService' node GetProcesses
+
+
+
+
+
+-- | get the executor that executes a process
+
+
+nodeForProcess :: String -> Cloud Node
+nodeForProcess process= do 
+
+  callService monitorService () :: Cloud ()  -- start/ping monitor if not started
+  
+  nods <- squeezeMonitor [] monitorNode
+  case nods of
+    []    -> error $ "no node running: "++ process
+    nod:_ -> return nod
+  where
+  squeezeMonitor :: [Node] -> Node -> Cloud [Node]
+  squeezeMonitor  exc nod= do
+    if  nod `elem` exc then return [] else do
+      nodes <- callService' nod GetNodes :: Cloud [Node]
+      return . concat =<< mapM squeeze (tail nodes) 
+      
+      where
+      squeeze :: Node -> Cloud [Node]
+      squeeze  node= do
+
+          case lookup "service" $ nodeServices node of
+           
+                Just "monitor" -> squeezeMonitor (nod:exc)  node
+
+                Just "executor" -> do
+
+                    procs <- callService' node GetProcesses :: Cloud [String]
+                    if process `elem` procs then return [node] else return []
+
+                _ -> return []
+      
+      
+
+ 
