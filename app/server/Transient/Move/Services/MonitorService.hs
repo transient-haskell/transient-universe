@@ -276,27 +276,26 @@ rinput :: IORef (M.Map String Handle)
 rinput= unsafePerformIO $ newIORef M.empty 
 
 
+logFolder= "./.log/"
 
-
-
-   
-
--- | execute the shell command specified in a string and stream back at runtime -line by line- the standard output
--- as soon as there is any output. It also stream all the standard error in case of exiting with a error status.
--- to the service caller. invoked by `networkExecuteStream`.
-
-
-logFileName expr= subst expr ++ ".log"
+logFileName ('.':expr) = logFileName expr
+logFileName expr= logFolder ++ subst expr ++ ".log"
     where
     subst []= [] 
     subst (' ':xs)= '-':subst xs
     subst ('/':xs)= '-':subst xs
     subst ('\"':xs)= '-':subst xs
-    subst (x:xs)= x:subst xs
+    subst (x:xs)= x:subst xs   
+
+-- | execute the shell command specified in a string and stream back at runtime -line by line- the standard output
+-- as soon as there is any output. It also stream all the standard error in case of exiting with a error status.
+-- to the service caller. invoked by `networkExecuteStream`.
+
       
 networkExecuteStreamIt :: String  -> TransIO String
 networkExecuteStreamIt expr  =  do
-
+      liftIO $ createDirectoryIfMissing True logFolder
+      
       r <- liftIO $ createProcess $ (shell expr){std_in=CreatePipe,std_err=CreatePipe,std_out=CreatePipe}
       liftIO $ atomicModifyIORef rinput $ \map ->   (M.insert expr (input1 r) map,())
    

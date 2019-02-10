@@ -82,7 +82,8 @@ getLogIt :: GetLogCmd -> Cloud BS.ByteString
 getLogIt (GetLogCmd cmd)= localIO $ BS.readFile $ logFileName cmd
 
 
-logFileName expr= subst expr ++ ".log"
+logFileName ('.':expr) = logFileName expr
+logFileName expr=  logFolder ++ subst expr ++ ".log"
     where
     subst []= [] 
     subst (' ':xs)= '-':subst xs
@@ -113,10 +114,10 @@ networkExecuteStreamIt' (ExecuteStream expr) = local $ do
 networkExecuteStreamIt :: String  -> Cloud String
 networkExecuteStreamIt expr  =  local $ executeStreamIt expr
 
-
+logFolder= "./.log/"
 
 executeStreamIt expr = do
-
+      liftIO $ createDirectoryIfMissing True logFolder
       r <- liftIO $ createProcess $ (shell expr){std_in=CreatePipe,std_err=CreatePipe,std_out=CreatePipe}
       
       time <- liftIO $ getCurrentTime
