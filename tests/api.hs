@@ -1,11 +1,9 @@
-#!/usr/bin/env ./execthirdline.sh
+#!/usr/bin/env execthirdlinedocker.sh
 
--- set -e &&  port=`echo ${3} | awk -F/ '{print $(3)}'` && docker run -it -p ${port}:${port} -v /c/Users/magocoal/OneDrive/Haskell/devel:/devel agocorona/transient:05-02-2017  bash -c "runghc  -j2 -isrc -i/devel/transient/src -i/devel/transient-universe/src -i/devel/ghcjs-hplay/src -i/devel/ghcjs-perch/src /devel/transient-universe/tests/$1 $2 $3 $4"
+-- mkdir -p ./static && ghcjs --make  -DDEBUG  -i../transient/src -i../transient-universe/src  -i../axiom/src   $1 -o static/out && runghc -DDEBUG -threaded  -i../develold/TCache -i../transient/src -i../transient-universe/src -i../axiom/src    $1  ${2} ${3} 
 
--- compile it with ghcjs and  execute it with runghc
--- set -e && port=`echo ${3} | awk -F/ '{print $(3)}'` && docker run -it -p ${port}:${port} -v $(pwd):/work agocorona/transient:05-02-2017  bash -c "runghc /work/${1} ${2} ${3}"
 
-{- execute as ./api.hs  -p start/<docker ip>/<port>
+{- execute as ./tests/api.hs  -p start/<docker ip>/<port>
 
  invoque: curl http://<docker ip>/<port>/api/hello/john
           curl http://<docker ip>/<port>/api/hellos/john
@@ -27,12 +25,16 @@ main = keep $  initNode   apisample
 apisample= api $ gets <|> posts
     where
     posts= do
+       log <- getData `onNothing` return ( Log False  [][] 0)
+       return () !> log
        received POST
        postParams <- param
        liftIO $ print (postParams :: PostParams)
        return $ BS.pack "received"
 
-    gets= received GET >>  hello <|> hellostream
+    gets= do
+        received GET 
+        hello <|> hellostream
     hello= do
         received "hello"
         name <- param
@@ -52,5 +54,5 @@ apisample= api $ gets <|> posts
                        "here follows a stream\n"
         stream name= do
             i <- threads 0 $ choose [1 ..]
-            liftIO $ threadDelay 1000000
+            liftIO $ threadDelay 100000
             return . BS.pack $ " hello " ++ name ++ " "++ show i

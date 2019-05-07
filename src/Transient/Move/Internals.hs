@@ -1,4 +1,4 @@
------------------------------------------------------------------------------
+ -----------------------------------------------------------------------------
 --
 -- Module      :  Transient.Move.Internals
 -- Copyright   :
@@ -1378,19 +1378,21 @@ listenNew port conn'=  do
 
      _ -> do   
            let uri'= BC.tail $ uriPath uri !> uriPath uri
-           if  "api/" `BC.isPrefixOf` uri'
+           if  "api" `BC.isPrefixOf` uri'
              then do
 
                log <- return $ Exec: (Var $ IDyns $ BS.unpack method):(map (Var . IDyns ) $ split $ BC.unpack $ BC.drop 4 uri')
 
 
-               str <-  giveData  <|> error "no api data"
+
                headers <- getHeaders
                maybeSetHost headers
+               str <-  giveData  <|> error "no api data"
                log' <- case (method,lookup "Content-Type" headers) of
                        ("POST",Just "application/x-www-form-urlencoded") -> do
                             len <- read <$> BC.unpack
                                         <$> (Transient $ return (lookup "Content-Length" headers))
+                            return () !> ("POST HEADERS=", BS.take len str)
                             setData $ ParseContext (return SDone) $ BS.take len str
 
                             postParams <- parsePostUrlEncoded  <|> return []
@@ -1398,9 +1400,9 @@ listenNew port conn'=  do
 
                        _ -> return $ log  -- ++ [Var $ IDynamic  str]
 
-               return $ SMore $ ClosureData 0 0  log'
+               return $ SMore $ ClosureData 0 0  log' !> ("APIIIII", log)
 
-             else if "relay/"  `BC.isPrefixOf` uri' then proxy sock method vers uri'
+             else if "relay"  `BC.isPrefixOf` uri' then proxy sock method vers uri'
                 
              else do
                    headers <- getHeaders
@@ -1708,6 +1710,7 @@ execLog  mlog =Transient $ do
           empty
         Right log -> do
            setData $ Log True log  (reverse log) 0  
+           return () !> ("PROCESS", log)
            setData $ Closure  closr
            
            
@@ -1890,6 +1893,7 @@ api  w= Cloud  $ do
    conn <- getSData  <|> error "api: Need a connection opened with initNode, listen, simpleWebApp"
    let send= sendRaw conn
    r <- w
+   return () !> ("response",r)
    send r                         --  !> r
 
 
@@ -1930,8 +1934,9 @@ parsePostUrlEncoded=  do
    dropSpaces
    many $ (,) <$> param  <*> value
    where
-   param= tTakeWhile' ( /= '=')
-   value= unEscapeString <$> BS.unpack <$> tTakeWhile' ( /= '&')
+   param= tTakeWhile ( /= '=')  
+   
+   value= unEscapeString <$> BS.unpack <$> tTakeWhile' ( /= '&') 
 
 
 
@@ -2221,9 +2226,9 @@ class Typeable a => Loggable1 a where
 
 instance {-# Overlapping #-}  Loggable1 Value where
    serialize= encode
-   deserialize msg= case decode msg !> "DECODE" of
-          Just x -> Just (x,mempty)
-          _      -> Nothing
+   deserialize msg= case eitherDecode msg !> "DECODE" of
+          Right x -> Just (x,mempty)
+          Left err      -> error err
 
 
 instance{-# Overlappable #-} (Typeable a, Show a, Read a) => Loggable1 a where
@@ -2243,48 +2248,76 @@ rawREST node restmsg = do
   str  <- liftIO $ SBSL.getContents sock
 
   setParseString str
-
+  (method, uri, vers) <- getFirstLine
   headers <- getHeaders
   setState $ HTTPHeaders headers
+  return () !> ("HEADERSSSSSSS", headers)
   case lookup "Transfer-Encoding" headers of
-    Just "chunked" -> (dechunk |- ((many $ decodeIt) >>= choose))
+    Just "chunked" -> do
+         SMore s <- dechunk
+         setParseString s
+         decodeIt
+         -- return a stream of JSON elements
+         -- (dechunk |-  decodeIt <|> ( threads 0 $ (many $ decodeIt) >>= choose))
     
     _ ->  
          case fmap (read . BC.unpack) $ lookup "Content-Length" headers  of
 
            Just length -> do
                  msg <- tTake length 
-                 return $ deserialize' msg 
-           _ -> decodeIt
+                 return $ deserialize' msg
+           _ -> decodeIt 
   where
-  deserialize' msg= case deserialize msg !> ("msg",msg)  of
+  
+  deserialize'' msg= case deserialize msg  !> ("msg",msg)  of
                      Nothing -> error "callRestService : type mismatch" 
-                     Just (x,_)  ->  x
-  jsonDelimit= return "{" <> (braces $ chainMany mappend1 (dropSpaces >> (jsonDelimit <|> elemString))) <> return "}"
-  elemString= (dropSpaces >> tTakeWhile (\c -> c /= '}' && not ( isSpace c)))
+                     Just r  ->  r 
+                     
+  deserialize'= fst . deserialize''
+  
+  elem=   (array <|> jsonObject <|> atom)
+  atom= elemString 
+  array= (brackets $ chainMany mappend1 elem)  <> return "]"
+  jsonObject= (braces $ chainMany mappend1 elem) <> return "}"
+  elemString= (dropSpaces >> tTakeWhile (\c -> c /= '}' && c /= ']' && not ( isSpace c) ))
   mappend1 a b= a <> " " <> b
  
  
-  decodeIt= jsonDelimit >>= return . deserialize'
-  
-hex= withData $ \s -> if BS.null s then empty else
-                        let h= BS.head s 
-                            t= BS.tail s
-                        in if h >= '0' && h <= '9' then return(ord(h) -ord '0',t)
-                           else if h >= 'A' && h <= 'F' then return(ord h -ord 'A' +10,t)
-                           else empty
+  --decodeIt= elem >>= return . deserialize''
+  decodeIt=  withData $ \s -> (return $ deserialize'' s) 
+      
+hex= withData $ \s -> if BS.null s then empty else parsehex (-1) s
+       where
+       
+       parsehex v s= do
+              return () !> ("v,s",v, BS.take 15 s)
             
-numChars= do l <- hex ; tDrop 2 >> return l !> l
+              let h= BS.head s 
+              
+                  t= BS.tail s 
+                  v'= if v== -1 then 0 else v
+                  x = if h >= '0' && h <= '9' then v' * 16 + ord(h) -ord '0'
+                           else if h >= 'A' && h <= 'F' then  v' * 16 + ord h -ord 'A' +10
+                           else -1
+              case (v,x) of
+                 (-1,-1) -> empty 
+                 (v, -1) -> return (v,s) 
+                 (_, x) -> parsehex x t 
+                           
+
+            
+numChars= do l <- hex ; tDrop 2 >> return l 
 
 dechunk= do
        n<- numChars 
-       r <- tTake $ fromIntegral n
+       r <- tTake $ fromIntegral n !> ("numChars",n) 
+       return () !> ("message", r)
        return () !> "drop"
        tDropUntilToken "\r\n"
        return () !> "SMORE"
        return $ SMore r  
        
-   <|> return SDone
+   <|> error "SDone " -- return SDone
 
 #endif
  
