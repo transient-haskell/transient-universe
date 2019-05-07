@@ -2254,11 +2254,13 @@ rawREST node restmsg = do
   return () !> ("HEADERSSSSSSS", headers)
   case lookup "Transfer-Encoding" headers of
     Just "chunked" -> do
-         SMore s <- dechunk
-         setParseString s
-         decodeIt
+         -- SMore s <- dechunk
+         -- setParseString s
+         -- decodeIt
+         -- dechunk |- decodeIt >>= async . return 
+         
          -- return a stream of JSON elements
-         -- (dechunk |-  decodeIt <|> ( threads 0 $ (many $ decodeIt) >>= choose))
+         (dechunk |-  decodeIt <|> ( threads 0 $ (many $ decodeIt) >>= choose))
     
     _ ->  
          case fmap (read . BC.unpack) $ lookup "Content-Length" headers  of
@@ -2268,56 +2270,60 @@ rawREST node restmsg = do
                  return $ deserialize' msg
            _ -> decodeIt 
   where
-  
-  deserialize'' msg= case deserialize msg  !> ("msg",msg)  of
-                     Nothing -> error "callRestService : type mismatch" 
-                     Just r  ->  r 
-                     
-  deserialize'= fst . deserialize''
-  
-  elem=   (array <|> jsonObject <|> atom)
-  atom= elemString 
-  array= (brackets $ chainMany mappend1 elem)  <> return "]"
-  jsonObject= (braces $ chainMany mappend1 elem) <> return "}"
-  elemString= (dropSpaces >> tTakeWhile (\c -> c /= '}' && c /= ']' && not ( isSpace c) ))
-  mappend1 a b= a <> " " <> b
- 
- 
-  --decodeIt= elem >>= return . deserialize''
-  decodeIt=  withData $ \s -> (return $ deserialize'' s) 
       
-hex= withData $ \s -> if BS.null s then empty else parsehex (-1) s
-       where
-       
-       parsehex v s= do
-              return () !> ("v,s",v, BS.take 15 s)
-            
-              let h= BS.head s 
-              
-                  t= BS.tail s 
-                  v'= if v== -1 then 0 else v
-                  x = if h >= '0' && h <= '9' then v' * 16 + ord(h) -ord '0'
-                           else if h >= 'A' && h <= 'F' then  v' * 16 + ord h -ord 'A' +10
-                           else -1
-              case (v,x) of
-                 (-1,-1) -> empty 
-                 (v, -1) -> return (v,s) 
-                 (_, x) -> parsehex x t 
-                           
+    deserialize'' msg= case deserialize msg  !> ("msg",msg)  of
+                         Nothing -> error "callRestService : type mismatch" 
+                         Just r  ->  r 
+                         
+    deserialize'= fst . deserialize''
+      
+    jsElem :: TransIO BS.ByteString  
+    jsElem=   dropSpaces >> (jsonObject <|> array <|> atom)
+    atom= elemString 
+    array=      (brackets $ return "[" <> return "{}" <> chainSepBy mappend (return "," <> jsElem)  (tChar ','))  <> return "]"
+    jsonObject= (braces $ return "{" <> chainMany mappend jsElem) <> return "}"
+    elemString= (dropSpaces >> tTakeWhile (\c -> c /= '}' && c /= ']' ))   
 
-            
-numChars= do l <- hex ; tDrop 2 >> return l 
-
-dechunk= do
-       n<- numChars 
-       r <- tTake $ fromIntegral n !> ("numChars",n) 
-       return () !> ("message", r)
-       return () !> "drop"
-       tDropUntilToken "\r\n"
-       return () !> "SMORE"
-       return $ SMore r  
-       
-   <|> error "SDone " -- return SDone
+     
+     
+    decodeIt= do
+        s <- jsElem 
+        return () !> ("decode",s)
+        return $ deserialize' s
+        
+      --decodeIt=  withData $ \s -> (return $ deserialize'' s) 
+          
+    hex= withData $ \s -> if BS.null s then empty else parsehex (-1) s
+           where
+           parsehex v s= do
+                  return () !> ("v,s",v, BS.take 15 s)
+                
+                  let h= BS.head s 
+                  
+                      t= BS.tail s 
+                      v'= if v== -1 then 0 else v
+                      x = if h >= '0' && h <= '9' then v' * 16 + ord(h) -ord '0'
+                               else if h >= 'A' && h <= 'F' then  v' * 16 + ord h -ord 'A' +10
+                               else -1
+                  case (v,x) of
+                     (-1,-1) -> empty 
+                     (v, -1) -> return (v,s) 
+                     (_, x) -> parsehex x t 
+                               
+    
+                
+    numChars= do l <- hex ; tDrop 2 >> return l 
+    
+    dechunk= do
+           n<- numChars 
+           r <- tTake $ fromIntegral n !> ("numChars",n) 
+           return () !> ("message", r)
+           return () !> "drop"
+           tDropUntilToken "\r\n"
+           return () !> "SMORE"
+           return $ SMore r  
+           
+       <|> return SDone
 
 #endif
  
