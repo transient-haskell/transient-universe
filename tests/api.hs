@@ -1,6 +1,6 @@
 #!/usr/bin/env execthirdlinedocker.sh
 
--- mkdir -p ./static && ghcjs --make  -DDEBUG  -i../transient/src -i../transient-universe/src  -i../axiom/src   $1 -o static/out && runghc -DDEBUG -threaded  -i../develold/TCache -i../transient/src -i../transient-universe/src -i../axiom/src    $1  ${2} ${3} 
+--  runghc     -i../transient/src -i../transient-universe/src -i../axiom/src    $1  ${2} ${3} 
 
 
 {- execute as ./tests/api.hs  -p start/<docker ip>/<port>
@@ -22,15 +22,16 @@ import qualified Data.ByteString as BSS
 
 main = keep $  initNode   apisample
 
-apisample= api $ gets <|> posts
+apisample= api $ gets <|> posts <|> badRequest
     where
     posts= do
-       log <- getData `onNothing` return ( Log False  [][] 0)
-       return () !> log
+
        received POST
        postParams <- param
        liftIO $ print (postParams :: PostParams)
-       return $ BS.pack "received"
+       let msg= "received\n"
+       return $ BS.pack $ "HTTP/1.0 200 OK\nContent-Type: text/plain\nContent-Length: "++ show (length msg)
+                 ++ "\nConnection: close\n\n" ++ msg
 
     gets= do
         received GET 
@@ -48,7 +49,9 @@ apisample= api $ gets <|> posts
         received "hellos"
         name <- param
         header <|> stream name
+        
         where
+        
         header=async $ return $ BS.pack $
                        "HTTP/1.0 200 OK\nContent-Type: text/plain\nConnection: close\n\n"++
                        "here follows a stream\n"
@@ -56,3 +59,12 @@ apisample= api $ gets <|> posts
             i <- threads 0 $ choose [1 ..]
             liftIO $ threadDelay 100000
             return . BS.pack $ " hello " ++ name ++ " "++ show i
+            
+    badRequest =  return $ BS.pack $
+                       let resp="Bad Request\n\
+                         \Usage: GET:  host/port/api/hello/<name>, host/port/api/hellos/<name>\n\
+                         \       POST: host/port/api\n"
+                       in "HTTP/1.0 400 Bad Request\nContent-Length: " ++ show(length resp)
+                         ++"\nConnection: close\n\n"++ resp
+                       
+                       
