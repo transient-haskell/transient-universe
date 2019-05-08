@@ -1393,8 +1393,8 @@ listenNew port conn'=  do
                             len <- read <$> BC.unpack
                                         <$> (Transient $ return (lookup "Content-Length" headers))
                             return () !> ("POST HEADERS=", BS.take len str)
-                            setData $ ParseContext (return SDone) $ BS.take len str
-
+                            --setData $ ParseContext (return $ SLast mempty) $ BS.take len str
+                            setParseString $ BS.take len str
                             postParams <- parsePostUrlEncoded  <|> return []
                             return $ log ++  [(Var . IDynamic $ postParams)]
 
@@ -1425,7 +1425,7 @@ listenNew port conn'=  do
 
 --                   async (return (SMore (0,0,[Exec]))) <|> do
                    do
---                     return ()                  !> "WEBSOCKET"
+                    -- return ()                  !> "WEBSOCKET"
                     --  onException $ \(e :: SomeException) -> do
                     --     liftIO $ putStr "listen websocket:" >> print e
                     --     -- liftIO $ mclose conn'
@@ -1890,11 +1890,14 @@ servePages (method,uri, headers)   = do
 --counter=  unsafePerformIO $ newMVar 0
 api :: TransIO BS.ByteString -> Cloud ()
 api  w= Cloud  $ do
-   conn <- getSData  <|> error "api: Need a connection opened with initNode, listen, simpleWebApp"
-   let send= sendRaw conn
-   r <- w
-   return () !> ("response",r)
-   send r                         --  !> r
+   Log rec _ _ _ <- getSData <|> return (Log False [][] 0)
+   if not rec then empty else do
+       conn <- getSData  <|> error "api: Need a connection opened with initNode, listen, simpleWebApp"
+       
+       let send= sendRaw conn
+       r <- w
+       return () !> ("response",r)
+       send r                         --  !> r
 
 
 
@@ -1934,7 +1937,7 @@ parsePostUrlEncoded=  do
    dropSpaces
    many $ (,) <$> param  <*> value
    where
-   param= tTakeWhile ( /= '=')  
+   param= tTakeWhile' ( /= '=')  
    
    value= unEscapeString <$> BS.unpack <$> tTakeWhile' ( /= '&') 
 
