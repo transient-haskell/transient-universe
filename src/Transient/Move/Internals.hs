@@ -1301,7 +1301,7 @@ listen  (node@(Node _   port _ _ )) = onAll $ do
 
    mlog <- listenNew (fromIntegral port) conn   <|> listenResponses :: TransIO (StreamData NodeMSG)
    execLog mlog
-
+   return () !> "AFTER LISTEN1"
 
 
 -- listen incoming requests
@@ -1889,7 +1889,7 @@ servePages (method,uri, headers)   = do
 
 --counter=  unsafePerformIO $ newMVar 0
 api :: TransIO BS.ByteString -> Cloud ()
-api  w= Cloud  $ do
+api w= Cloud $ do
    Log rec _ _ _ <- getSData <|> return (Log False [][] 0)
    if not rec then empty else do
        conn <- getSData  <|> error "api: Need a connection opened with initNode, listen, simpleWebApp"
@@ -2249,22 +2249,26 @@ rawREST node restmsg = do
   liftIO $ SBS.sendMany sock $ BL.toChunks $ BS.pack $ restmsg 
   return () !> "after send"
   str  <- liftIO $ SBSL.getContents sock
-
+  return() !> ("RECEIVED", BS.take 50 str) 
   setParseString str
   (method, uri, vers) <- getFirstLine
+  return () !> (method, uri, vers)
   headers <- getHeaders
   setState $ HTTPHeaders headers
   return () !> ("HEADERSSSSSSS", headers)
   case lookup "Transfer-Encoding" headers of
     Just "chunked" -> do
-         -- SMore s <- dechunk
-         -- setParseString s
-         -- decodeIt
+--         SMore s <- dechunk
+--         setParseString s
+--         r <- decodeIt
+
+--         return r
+         
          -- dechunk |- decodeIt >>= async . return 
          
          -- return a stream of JSON elements
-         (dechunk |-  decodeIt <|> ( threads 0 $ (many $ decodeIt) >>= choose))
-    
+         dechunk |-  decodeIt  <|> ( threads 0 $ (many $ decodeIt) >>= choose)
+ 
     _ ->  
          case fmap (read . BC.unpack) $ lookup "Content-Length" headers  of
 
@@ -2275,7 +2279,7 @@ rawREST node restmsg = do
   where
       
     deserialize'' msg= case deserialize msg  !> ("msg",msg)  of
-                         Nothing -> error "callRestService : type mismatch" 
+                         Nothing -> error "callRestService :response type mismatch" 
                          Just r  ->  r 
                          
     deserialize'= fst . deserialize''
@@ -2296,10 +2300,14 @@ rawREST node restmsg = do
         
       --decodeIt=  withData $ \s -> (return $ deserialize'' s) 
           
-    hex= withData $ \s -> if BS.null s then empty else parsehex (-1) s
+    hex= withData $ \s ->  parsehex (-1) s
            where
-           parsehex v s= do
-                  return () !> ("v,s",v, BS.take 15 s)
+           parsehex v s= 
+            case (BS.null s,v) of
+              (True, -1) ->  empty
+              (True,_) -> return (v, mempty) 
+              _  -> do
+
                 
                   let h= BS.head s 
                   
@@ -2326,7 +2334,7 @@ rawREST node restmsg = do
            return () !> "SMORE"
            return $ SMore r  
            
-       <|> return SDone
+      <|> return SDone !> "SDone in dechunk"
 
 #endif
  
