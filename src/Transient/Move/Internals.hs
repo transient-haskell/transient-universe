@@ -2299,7 +2299,7 @@ rawREST node restmsg = do
     hex= withData $ \s -> if BS.null s then empty else parsehex (-1) s
            where
            parsehex v s= do
-                  return () !> ("v,s",v, BS.take 15 s)
+--                  return () !> ("v,s",v, BS.take 15 s)
                 
                   let h= BS.head s 
                   
