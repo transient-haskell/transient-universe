@@ -2302,6 +2302,7 @@ rawREST node restmsg = do
           
     hex= withData $ \s ->  parsehex (-1) s
            where
+
            parsehex v s= 
             case (BS.null s,v) of
               (True, -1) ->  empty
