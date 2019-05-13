@@ -1,4 +1,4 @@
- -----------------------------------------------------------------------------
+----------------------------------------------------------------------------
 --
 -- Module      :  Transient.Move.Internals
 -- Copyright   :
@@ -2251,10 +2251,10 @@ rawREST node restmsg = do
   str  <- liftIO $ SBSL.getContents sock
   return() !> ("RECEIVED", BS.take 50 str) 
   setParseString str
-  (method, uri, vers) <- getFirstLine
-  return () !> (method, uri, vers)
+  code <- do parseString ; i <- parseString; dropTillEndOfLine; return i
+
   headers <- getHeaders
-  setState $ HTTPHeaders headers
+  setState $ HTTPHeaders $ ("Http-Code", toStrict code): headers
   return () !> ("HEADERSSSSSSS", headers)
   case lookup "Transfer-Encoding" headers of
     Just "chunked" -> do
@@ -2338,4 +2338,6 @@ rawREST node restmsg = do
       <|> return SDone !> "SDone in dechunk"
 
 #endif
+
+
  
