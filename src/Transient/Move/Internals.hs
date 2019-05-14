@@ -2224,21 +2224,38 @@ connect' _ = empty
 
 class Typeable a => Loggable1 a where
    serialize :: a -> BS.ByteString
-   deserialize :: BS.ByteString -> Maybe (a, BS.ByteString)
+   deserialize :: BS.ByteString ->TransIO (Maybe (a, BS.ByteString))
+
 
 
 instance {-# Overlapping #-}  Loggable1 Value where
    serialize= encode
-   deserialize msg= case eitherDecode msg !> "DECODE" of
-          Right x -> Just (x,mempty)
-          Left err      -> error err
+   deserialize msg= withParseString msg $ decodeIt
+    where
+        jsElem :: TransIO BS.ByteString  
+        jsElem=   dropSpaces >> (jsonObject <|> array <|> atom)
+        atom= elemString 
+        array=      (brackets $ return "[" <> return "{}" <> chainSepBy mappend (return "," <> jsElem)  (tChar ','))  <> return "]"
+        jsonObject= (braces $ return "{" <> chainMany mappend jsElem) <> return "}"
+        elemString= (dropSpaces >> tTakeWhile (\c -> c /= '}' && c /= ']' ))   
+
+     
+     
+        decodeIt= do
+            s <- jsElem 
+            return () !> ("decode",s)
+
+            case eitherDecode s !> "DECODE" of
+              Right x -> return $ Just (x,mempty)
+              Left err      -> error err
 
 
 instance{-# Overlappable #-} (Typeable a, Show a, Read a) => Loggable1 a where
    serialize = BS.pack . show
    deserialize s= case readsPrec 0 (BS.unpack  s)!> "READS" of
-        [] -> Nothing
-        (r,t): _ -> Just (r,BS.pack t)
+        [] -> return Nothing
+        (r,t): _ -> return $ Just (r,BS.pack t)
+
 
 
 newtype HTTPHeaders= HTTPHeaders  [(CI BC.ByteString,BC.ByteString)] deriving Show
@@ -2257,14 +2274,8 @@ rawREST node restmsg = do
   setState $ HTTPHeaders $ ("Http-Code", toStrict code): headers
   return () !> ("HEADERSSSSSSS", headers)
   case lookup "Transfer-Encoding" headers of
-    Just "chunked" -> do
---         SMore s <- dechunk
---         setParseString s
---         r <- decodeIt
+    Just "chunked" -> 
 
---         return r
-         
-         -- dechunk |- decodeIt >>= async . return 
          
          -- return a stream of JSON elements
          dechunk |-  decodeIt  <|> ( threads 0 $ (many $ decodeIt) >>= choose)
@@ -2274,31 +2285,23 @@ rawREST node restmsg = do
 
            Just length -> do
                  msg <- tTake length 
-                 return $ deserialize' msg
+                 deserialize' msg
            _ -> decodeIt 
   where
       
-    deserialize'' msg= case deserialize msg  !> ("msg",msg)  of
-                         Nothing -> error "callRestService :response type mismatch" 
-                         Just r  ->  r 
+    deserialize'' msg= res where 
+       res= do
+               r <- deserialize msg  
+               case r of
+                         Nothing -> error $ "callRestService :response type mismatch parsing: " ++ show msg
+                                          ++ "to type " ++ show (typeOf res)
+                         Just r  -> return r 
                          
-    deserialize'= fst . deserialize''
+    deserialize' s= return . fst =<< deserialize'' s
       
-    jsElem :: TransIO BS.ByteString  
-    jsElem=   dropSpaces >> (jsonObject <|> array <|> atom)
-    atom= elemString 
-    array=      (brackets $ return "[" <> return "{}" <> chainSepBy mappend (return "," <> jsElem)  (tChar ','))  <> return "]"
-    jsonObject= (braces $ return "{" <> chainMany mappend jsElem) <> return "}"
-    elemString= (dropSpaces >> tTakeWhile (\c -> c /= '}' && c /= ']' ))   
-
-     
-     
-    decodeIt= do
-        s <- jsElem 
-        return () !> ("decode",s)
-        return $ deserialize' s
+    
         
-      --decodeIt=  withData $ \s -> (return $ deserialize'' s) 
+    decodeIt=  withData $ \s -> deserialize'' s 
           
     hex= withData $ \s ->  parsehex (-1) s
            where
