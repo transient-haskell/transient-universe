@@ -33,7 +33,7 @@ import GHC.Generics
 
 getRESTReq= "GET /station?id=eq.$1 HTTP/1.1\r\n"
          <> "Host: $hostnode\r\n"
-         <> "Connection: close\r\n"
+       --  <> "Connection: close\r\n"
          <> "\r\n" :: String
          
 getRestService = [("type","HTTP")
@@ -42,7 +42,7 @@ getRestService = [("type","HTTP")
 
 postRESTReq=  "POST /station HTTP/1.1\r\n"
            <> "Host: $hostnode\r\n"
-           <> "Connection: close\r\n"
+          -- <> "Connection: close\r\n"
            <> "Content-Type: application/json\r\n"
            <> "Content-Length: $1\r\n\r\n" 
            <> "$2" :: String
@@ -65,14 +65,13 @@ data PostResponse= OK |  ErrorPost Value deriving (Typeable, Read,Show)
 instance Loggable1 PostResponse where
    serialize _ = undefined
 
-   deserialize str = return $  case decode str of
-                 Just val -> Just (ErrorPost val,mempty)
-                 Nothing -> Just (OK,"")
+   deserialize  = (ErrorPost <$> deserialize) <|> return OK
+  
 
 main= keep $ initNode $ inputNodes <|> do
       local $ option ("go" :: String) "go"
 
-      let s1 = Station "stat11" (Just "zhongzhou5")
+      let s1 = Station "stat16" (Just "zhongzhou5")
       let jsonmsg= BSL.unpack $ encode s1
       let len= length jsonmsg
       msg <- callService postRestService (len,jsonmsg)  :: Cloud  PostResponse
@@ -81,10 +80,10 @@ main= keep $ initNode $ inputNodes <|> do
           liftIO $ print headers
           liftIO $ print ("MESSAGE", msg)
 
-
+{-
       r <- callService getRestService (1 ::Int)
       local $ do
           headers <- getState <|> return (HTTPHeaders [])
           liftIO $ print headers
       localIO $ print  (r :: Value)
-
+-}

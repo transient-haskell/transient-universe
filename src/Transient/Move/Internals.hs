@@ -2224,13 +2224,14 @@ connect' _ = empty
 
 class Typeable a => Loggable1 a where
    serialize :: a -> BS.ByteString
-   deserialize :: BS.ByteString ->TransIO (Maybe (a, BS.ByteString))
+   deserialize :: TransIO a
+   
 
 
 
 instance {-# Overlapping #-}  Loggable1 Value where
    serialize= encode
-   deserialize msg= withParseString msg $ decodeIt
+   deserialize =  decodeIt
     where
         jsElem :: TransIO BS.ByteString  
         jsElem=   dropSpaces >> (jsonObject <|> array <|> atom)
@@ -2246,15 +2247,15 @@ instance {-# Overlapping #-}  Loggable1 Value where
             return () !> ("decode",s)
 
             case eitherDecode s !> "DECODE" of
-              Right x -> return $ Just (x,mempty)
-              Left err      -> error err
+              Right x -> return x
+              Left err      -> empty
 
 
 instance{-# Overlappable #-} (Typeable a, Show a, Read a) => Loggable1 a where
    serialize = BS.pack . show
-   deserialize s= case readsPrec 0 (BS.unpack  s)!> "READS" of
-        [] -> return Nothing
-        (r,t): _ -> return $ Just (r,BS.pack t)
+   deserialize =  withData $ \s -> case readsPrec 0 (BS.unpack  s)!> "READS" of
+        [] -> empty
+        (r,t): _ -> return (r, BS.pack t)
 
 
 
@@ -2278,30 +2279,25 @@ rawREST node restmsg = do
 
          
          -- return a stream of JSON elements
-         dechunk |-  decodeIt  <|> ( threads 0 $ (many $ decodeIt) >>= choose)
+         dechunk |-  deserialize  <|> ( threads 0 $ (many $ deserialize) >>= choose)
  
     _ ->  
          case fmap (read . BC.unpack) $ lookup "Content-Length" headers  of
 
            Just length -> do
                  msg <- tTake length 
-                 deserialize' msg
-           _ -> decodeIt 
+                 withParseString msg deserialize 
+           _ -> deserialize 
   where
       
-    deserialize'' msg= res where 
-       res= do
-               r <- deserialize msg  
-               case r of
-                         Nothing -> error $ "callRestService :response type mismatch parsing: " ++ show msg
-                                          ++ "to type " ++ show (typeOf res)
-                         Just r  -> return r 
+    
+  
                          
-    deserialize' s= return . fst =<< deserialize'' s
+
       
     
         
-    decodeIt=  withData $ \s -> deserialize'' s 
+
           
     hex= withData $ \s ->  parsehex (-1) s
            where
@@ -2331,12 +2327,13 @@ rawREST node restmsg = do
     
     dechunk= do
            n<- numChars 
-           r <- tTake $ fromIntegral n !> ("numChars",n) 
-           return () !> ("message", r)
-           return () !> "drop"
-           tDropUntilToken "\r\n"
-           return () !> "SMORE"
-           return $ SMore r  
+           if n== 0 then empty else do
+               r <- tTake $ fromIntegral n !> ("numChars",n) 
+               return () !> ("message", r)
+               return () !> "drop"
+               tDropUntilToken "\r\n"
+               return () !> "SMORE"
+               return $ SMore r  
            
       <|> return SDone !> "SDone in dechunk"
 
