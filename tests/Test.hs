@@ -1,39 +1,68 @@
-#!/usr/bin/env ./executor.sh
--- set -e  && docker run -it -v /c/Users/magocoal/OneDrive/Haskell/devel:/devel agocorona/transient:01-27-2017  bash -c "runghc  -j2 -isrc -i/devel/transient/src -i/devel/transient-universe/src /devel/transient-universe/tests/$1 $2 $3 $4"
+#!/usr/bin/env execthirdlinedocker.sh
+--  info: use sed -i 's/\r//g' file if report "/usr/bin/env: ‘execthirdlinedocker.sh\r’: No such file or directory"
+--  runghc     -i../transient/src -i../transient-universe/src -i../axiom/src    $1 $2 $3
 
-{-# LANGUAGE ScopedTypeVariables #-}
-import Transient.Internals
-import Transient.EVars
-import Transient.Move
-import Transient.Indeterminism
-import Transient.Move.Utils
-import Control.Applicative
-import Control.Exception
-import GHC.Conc
-import Control.Monad.State
-import Data.Maybe
-import System.Random
+import System.IO (hFlush,stdout) 
+
+import System.IO.Unsafe
+
 import Control.Concurrent.MVar
+
+import Control.Applicative
+
+
+
+import Control.Concurrent(threadDelay)
+
+import Control.Exception hiding(onException)
+
+import Data.IORef
+
+import Control.Monad(when) 
+
+import Data.Typeable
+
+import System.Random
+
+import Data.Maybe 
+
 import qualified Data.Map as M
-import Data.Monoid
+
+import System.Environment
+
+import Data.List(isPrefixOf)
+
+import Unsafe.Coerce
+
+import Data.Monoid 
+
+import Transient.Internals
+import Transient.Indeterminism
+import Transient.Move
+import Transient.Move.Utils
+import Control.Monad.State
+import Control.Exception hiding(onException)
+
+import System.IO
+
+main= keep $ initNode  $ inputNodes <|>  do
+
+  local $ option "go" "go"
+  nodes <- local getNodes
+  do
+      local $  choose [1 :: Int ..]
+      buf <- local $ return "" -- [1..4000 :: Int]
+      
+      runAt (nodes !!1) $ localIO $ return ()
 
 
-main= keep $ runCloud' $ do
-    runTestNodes [2000..2020]
-    local $ option  "f" "fire"
-
-   -- nodes <- local getNodes
---    r <- (runAt (nodes !! 0) $ showNode 0 )  <>
---          (runAt (nodes !! 1)  $ showNode 1 )   <>
---          (runAt (nodes !! 2)  $ showNode 2) 
-    r <- mclustered $ showNode
-    localIO $ print r
-    where
- 
-        
-    showNode =  local $ do
-
-      n <-  getMyNode
-      -- liftIO $ threadDelay  $ 1000000  * (2-t)
-      liftIO $ print n
-      return [n]
+main1= keep $ initNode  $ inputNodes <|>  do
+  local $ option "go" "go"
+  do
+      local $ setSynchronous True 
+      line  <- local $ choose[1..10::Int] 
+      localIO $ print ("1",line)
+      nodes <- local getNodes
+      local $ guard (length nodes ==2)
+      runAt (nodes !!1) $ localIO $ print line 
+      localIO $ print ("2", line) 

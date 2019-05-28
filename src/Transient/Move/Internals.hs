@@ -1,4 +1,4 @@
-----------------------------------------------------------------------------
+------------------------------------------------------------------------------
 --
 -- Module      :  Transient.Move.Internals
 -- Copyright   :
@@ -221,9 +221,10 @@ onAll =  Cloud
 -- | only executes if the result is demanded. It is useful when the conputation result is only used in
 -- the remote node, but it is not serializable. All the state changes executed in the argument with 
 -- `setData` `setState` etc. are lost
-lazy :: TransIO a -> Cloud a
-lazy mx= onAll $ getCont >>= \st -> Transient $
-        return $ unsafePerformIO $ runStateT (runTrans mx) st >>=  return .fst 
+lazy :: TransIO a -> Cloud a 
+lazy mx= onAll $ do
+        st <- get
+        return $ fromJust $ unsafePerformIO $ runStateT (runTrans mx) st >>=  return .fst 
 
 
 -- | executes a non-serilizable action in the remote node, whose result can be used by subsequent remote invocations
@@ -449,7 +450,8 @@ syncStream proc=  do
       Connection{synchronous= synchronous} <- modifyData'(\con -> con{synchronous=True}) err 
       return synchronous
     Cloud $ threads 0 $ runCloud' proc <***  modifyData'(\con -> con{synchronous=sync})  err
-    where err= error "syncStream: no communication data"
+    where 
+    err= error "syncStream: no communication data"
 
 
 teleport :: Cloud ()
@@ -1380,29 +1382,60 @@ listenNew port conn'=  do
            let uri'= BC.tail $ uriPath uri !> uriPath uri
            if  "api" `BC.isPrefixOf` uri'
              then do
+               {-
+                check for len
+                if len entonces normal
+                   check for url encoded
+                   check for json
+                   
+                else check for chunked
+                lookup "Transfer-Encoding" headers of
+                         Just "chunked" -> 
+                   
+               -}
 
-               log <- return $ Exec: (Var $ IDyns $ BS.unpack method):(map (Var . IDyns ) $ split $ BC.unpack $ BC.drop 4 uri')
+               log <- return $ Exec:(Var $ IDyns $ BS.unpack method):(map (Var . IDyns ) $ split $ BC.unpack $ BC.drop 4 uri')
 
 
 
                headers <- getHeaders
                maybeSetHost headers
+               return () !> ("HEADERS", headers)
                str <-  giveData  <|> error "no api data"
-               log' <- case (method,lookup "Content-Type" headers) of
-                       ("POST",Just "application/x-www-form-urlencoded") -> do
-                            len <- read <$> BC.unpack
-                                        <$> (Transient $ return (lookup "Content-Length" headers))
-                            return () !> ("POST HEADERS=", BS.take len str)
-                            --setData $ ParseContext (return $ SLast mempty) $ BS.take len str
-                            setParseString $ BS.take len str
-                            postParams <- parsePostUrlEncoded  <|> return []
-                            return $ log ++  [(Var . IDynamic $ postParams)]
+               if  lookup "Transfer-Encoding" headers == Just "chunked" then error $ "chunked not supported" else do
+                             
+                   len <- (read <$> BC.unpack
+                               <$> (Transient $ return (lookup "Content-Length" headers)))
+                               <|> return 0
+                   log' <- case lookup "Content-Type" headers of
+                          
+                           Just "application/json" -> do
+ 
+                                let toDecode= BS.take len str
+                                return () !> ("TO DECODE", toDecode)
+                                let json = case eitherDecode toDecode of
+                                        Right x  ->  (x :: Value)
+                                        Left err -> error $ "Data.Aeson: "++ err
+                                return $ log ++  [(Var $ IDynamic json)]
+                                
+                           Just "application/x-www-form-urlencoded" -> do
+                                
+                                return () !> ("POST HEADERS=", BS.take len str)
+    
+                                setParseString $ BS.take len str
+                                postParams <- parsePostUrlEncoded  <|> return []
+                                return $ log ++  [(Var . IDynamic $ postParams)]
+                           Just x -> do
+                                
+                                return () !> ("POST HEADERS=", BS.take len str)
+                                let str= BS.take len str
+                                return $ log   ++ [Var $ IDynamic  str]        
+                                
+                           _ -> return $ log   
+    
+                   return $ SMore $ ClosureData 0 0  log' !> ("APIIIII", log')
 
-                       _ -> return $ log  -- ++ [Var $ IDynamic  str]
-
-               return $ SMore $ ClosureData 0 0  log' !> ("APIIIII", log)
-
-             else if "relay"  `BC.isPrefixOf` uri' then proxy sock method vers uri'
+             else if "relay" `BC.isPrefixOf` uri' then proxy sock method vers uri'
                 
              else do
                    headers <- getHeaders
@@ -1869,7 +1902,7 @@ servePages (method,uri, headers)   = do
            if exist, send else do
               store path, execute continuation
               get the rendering
-              send trough HTTP
+              send trough HTTPnnnn
            - put this logic as independent alternative programmer options
               serveFile dirs <|> serveApi apis <|> serveNode nodeCode
         -}
@@ -1890,6 +1923,7 @@ servePages (method,uri, headers)   = do
 --counter=  unsafePerformIO $ newMVar 0
 api :: TransIO BS.ByteString -> Cloud ()
 api w= Cloud $ do
+   return () !> "calling API"
    Log rec _ _ _ <- getSData <|> return (Log False [][] 0)
    if not rec then empty else do
        conn <- getSData  <|> error "api: Need a connection opened with initNode, listen, simpleWebApp"
@@ -2263,6 +2297,7 @@ newtype HTTPHeaders= HTTPHeaders  [(CI BC.ByteString,BC.ByteString)] deriving Sh
 
 rawREST :: Loggable1 a => Node -> String -> TransIO  a
 rawREST node restmsg = do
+  abduce
   sock <- liftIO $ connectTo' 8192 (nodeHost node) (  PortNumber $ fromIntegral $ nodePort node) 
   liftIO $ SBS.sendMany sock $ BL.toChunks $ BS.pack $ restmsg 
   return () !> "after send"
@@ -2290,14 +2325,6 @@ rawREST node restmsg = do
            _ -> deserialize 
   where
       
-    
-  
-                         
-
-      
-    
-        
-
           
     hex= withData $ \s ->  parsehex (-1) s
            where
