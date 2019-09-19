@@ -76,7 +76,7 @@ main= keep $ initNode $ inputNodes <|> do
       let len= length jsonmsg
       msg <- callService postRestService (len,jsonmsg)  :: Cloud  PostResponse
       local $ do
-          headers <- getState <|> return (HTTPHeaders [])
+          headers <- getState <|> return (HTTPHeaders ("","","")[])
           liftIO $ print headers
           liftIO $ print ("MESSAGE", msg)
 

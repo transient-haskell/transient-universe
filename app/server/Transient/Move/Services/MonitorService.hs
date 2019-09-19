@@ -123,7 +123,7 @@ returnInstances (ident, service, num)= withBlockingService service $ do
 
     requestInstall :: String -> Service -> Int -> Cloud [ Node]
     requestInstall ident service num=  do
-      ns <- local getEqualNodes  
+      ns <- local getNodes  
       return () !> ("equal",ns)    
       auth <-   callNodes' ns (<>) mempty  $  localIO $ authorizeService ident service >>=  \x -> return [x]
       return () !> auth

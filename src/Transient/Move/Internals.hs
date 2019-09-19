@@ -927,7 +927,7 @@ mclose :: Connection -> IO ()
 #ifndef ghcjs_HOST_OS
 
 mclose (Connection _ _ _
-   (Just (Node2Node _  sock _ )) _ _ _ _ _ _ _)= NS.close sock
+   (Just (Node2Node _  sock _ )) _ _ _ _ _ _ _)= NS.close sock --  print "CLOSING"  >> NS.shutdown sock NS.ShutdownBoth --  NS.close sock
 
 mclose (Connection _ _ _
    (Just (Node2Web sconn ))
@@ -1219,7 +1219,7 @@ data Connection= Connection{idConn     :: Int
                            -- multiple wormhole/teleport use the same connection concurrently
                            ,blocked    :: Blocked
                            ,calling    :: Bool
-                           ,synchronous :: Bool
+                           ,synchronous :: Bool    -- should not be by message instead of connection?
                            -- local localClosures with his log and his continuation
                            ,localClosures   :: MVar (M.Map IdClosure  (MVar (),EventF))
 
@@ -1367,7 +1367,7 @@ listenNew port conn'=  do
 
 
   --  (method,uri, headers) <- receiveHTTPHead
-   (method, uri, vers) <- getFirstLine
+   firstLine@(method, uri, vers) <- getFirstLine
    return () !> (method, uri, vers)
    case method of
 
@@ -1382,40 +1382,44 @@ listenNew port conn'=  do
            let uri'= BC.tail $ uriPath uri !> uriPath uri
            if  "api" `BC.isPrefixOf` uri'
              then do
-               {-
-                check for len
-                if len entonces normal
-                   check for url encoded
-                   check for json
-                   
-                else check for chunked
-                lookup "Transfer-Encoding" headers of
-                         Just "chunked" -> 
-                   
-               -}
-
+               
                log <- return $ Exec:(Var $ IDyns $ BS.unpack method):(map (Var . IDyns ) $ split $ BC.unpack $ BC.drop 4 uri')
 
 
 
                headers <- getHeaders
+               setState $ HTTPHeaders firstLine headers
                maybeSetHost headers
                return () !> ("HEADERS", headers)
                str <-  giveData  <|> error "no api data"
-               if  lookup "Transfer-Encoding" headers == Just "chunked" then error $ "chunked not supported" else do
+               if  lookup "Transfer-Encoding" headers == Just "chunked" 
+                 then do
+                       json <- dechunk |-  deserialize --  ( threads 0 $ (many $ deserialize) >>= choose)
+                       return () !> ("JSON", json)
+                       return $ SMore $ ClosureData 0 0 $ log   ++ [Var $ IDynamic  (json :: Value)]
+                 else do
                              
                    len <- (read <$> BC.unpack
-                               <$> (Transient $ return (lookup "Content-Length" headers)))
-                               <|> return 0
+                                <$> (Transient $ return (lookup "Content-Length" headers)))
+                                <|> return 0
                    log' <- case lookup "Content-Type" headers of
                           
                            Just "application/json" -> do
  
                                 let toDecode= BS.take len str
-                                return () !> ("TO DECODE", toDecode)
-                                let json = case eitherDecode toDecode of
-                                        Right x  ->  (x :: Value)
-                                        Left err -> error $ "Data.Aeson: "++ err
+                                return () !>  ("TO DECODE", toDecode)
+                                json  <- withParseString toDecode $ deserialize :: TransIO  Value 
+                                return () !> ("JSON", json)
+                                  {- case eitherDecode toDecode of
+                             F           Right x  ->  return (x :: Value)
+                                        Left err ->  do
+                                                conn <- getSData
+                                                let msg = "malformed json data\n"
+                                                sendRaw conn $ BS.pack $ 
+                                                     "HTTP/1.0 400 Bad Request\nContent-Type: text/plain\nContent-Length: "++ show (length msg)
+                                                      ++ "\nConnection: close\n\n" ++ msg
+                                                empty
+                                                -}
                                 return $ log ++  [(Var $ IDynamic json)]
                                 
                            Just "application/x-www-form-urlencoded" -> do
@@ -1923,16 +1927,21 @@ servePages (method,uri, headers)   = do
 --counter=  unsafePerformIO $ newMVar 0
 api :: TransIO BS.ByteString -> Cloud ()
 api w= Cloud $ do
-   return () !> "calling API"
-   Log rec _ _ _ <- getSData <|> return (Log False [][] 0)
-   if not rec then empty else do
-       conn <- getSData  <|> error "api: Need a connection opened with initNode, listen, simpleWebApp"
-       
+
+    Log rec _ _ _ <- getState <|> return (Log False [][] 0)
+    if not rec then empty else do
+       HTTPHeaders (_,_,vers) hdrs <- getState <|> error "api: no HTTP headers???"
+       let closeit= lookup "Connection" hdrs == Just "close"
+       conn <- getState  <|> error "api: Need a connection opened with initNode, listen, simpleWebApp"
        let send= sendRaw conn
+
        r <- w
        return () !> ("response",r)
-       send r                         --  !> r
-
+       send r 
+       
+       return () !> (vers, hdrs)
+       
+       when (vers == "HTTP/1.0" || lookup "Connection" hdrs == Just "close") $ liftIO $ mclose conn
 
 
 
@@ -2265,7 +2274,14 @@ class Typeable a => Loggable1 a where
 
 instance {-# Overlapping #-}  Loggable1 Value where
    serialize= encode
-   deserialize =  decodeIt
+   deserialize =  do
+            s <- jsElem 
+            return () !> ("decode1",s)
+
+            case eitherDecode s of
+              Right x  -> return x  !> "RIGHTHHHHH"
+              Left err -> error err !> "LEFFFFFFFT"
+
     where
         jsElem :: TransIO BS.ByteString  
         jsElem=   dropSpaces >> (jsonObject <|> array <|> atom)
@@ -2276,14 +2292,7 @@ instance {-# Overlapping #-}  Loggable1 Value where
 
      
      
-        decodeIt= do
-            s <- jsElem 
-            return () !> ("decode",s)
-
-            case eitherDecode s !> "DECODE" of
-              Right x -> return x
-              Left err      -> empty
-
+       
 
 instance{-# Overlappable #-} (Typeable a, Show a, Read a) => Loggable1 a where
    serialize = BS.pack . show
@@ -2293,28 +2302,28 @@ instance{-# Overlappable #-} (Typeable a, Show a, Read a) => Loggable1 a where
 
 
 
-newtype HTTPHeaders= HTTPHeaders  [(CI BC.ByteString,BC.ByteString)] deriving Show
+data HTTPHeaders= HTTPHeaders  (BS.ByteString, B.ByteString, BS.ByteString) [(CI BC.ByteString,BC.ByteString)] deriving Show
 
 rawREST :: Loggable1 a => Node -> String -> TransIO  a
 rawREST node restmsg = do
   abduce
-  sock <- liftIO $ connectTo' 8192 (nodeHost node) (  PortNumber $ fromIntegral $ nodePort node) 
+  sock <- liftIO $ connectTo' 8192 (nodeHost node) (PortNumber $ fromIntegral $ nodePort node) 
   liftIO $ SBS.sendMany sock $ BL.toChunks $ BS.pack $ restmsg 
   return () !> "after send"
   str  <- liftIO $ SBSL.getContents sock
   return() !> ("RECEIVED", BS.take 50 str) 
   setParseString str
-  code <- do parseString ; i <- parseString; dropTillEndOfLine; return i
+  first <- getFirstLine
 
   headers <- getHeaders
-  setState $ HTTPHeaders $ ("Http-Code", toStrict code): headers
+  setState $ HTTPHeaders first headers
   return () !> ("HEADERSSSSSSS", headers)
   case lookup "Transfer-Encoding" headers of
     Just "chunked" -> 
 
          
          -- return a stream of JSON elements
-         dechunk |-  deserialize  <|> ( threads 0 $ (many $ deserialize) >>= choose)
+         dechunk |-  deserialize 
  
     _ ->  
          case fmap (read . BC.unpack) $ lookup "Content-Length" headers  of
@@ -2326,7 +2335,22 @@ rawREST node restmsg = do
   where
       
           
-    hex= withData $ \s ->  parsehex (-1) s
+
+    
+dechunk= do
+           n<- numChars 
+           if n== 0 then return SDone else do
+               r <- tTake $ fromIntegral n !> ("numChars",n) 
+               return () !> ("message", r)
+               return () !> "drop"
+               tDropUntilToken "\r\n"
+               return () !> "SMORE"
+               return $ SMore r  
+           
+      <|> return SDone !> "SDone in dechunk"
+      
+    where
+    hex = withData $ \s ->  parsehex (-1) s 
            where
 
            parsehex v s= 
@@ -2342,6 +2366,7 @@ rawREST node restmsg = do
                       v'= if v== -1 then 0 else v
                       x = if h >= '0' && h <= '9' then v' * 16 + ord(h) -ord '0'
                                else if h >= 'A' && h <= 'F' then  v' * 16 + ord h -ord 'A' +10
+                               else if h >= 'a' && h <= 'f' then  v' * 16 + ord h -ord 'a' +10
                                else -1
                   case (v,x) of
                      (-1,-1) -> empty 
@@ -2350,20 +2375,7 @@ rawREST node restmsg = do
                                
     
                 
-    numChars= do l <- hex ; tDrop 2 >> return l 
-    
-    dechunk= do
-           n<- numChars 
-           if n== 0 then empty else do
-               r <- tTake $ fromIntegral n !> ("numChars",n) 
-               return () !> ("message", r)
-               return () !> "drop"
-               tDropUntilToken "\r\n"
-               return () !> "SMORE"
-               return $ SMore r  
-           
-      <|> return SDone !> "SDone in dechunk"
-
+    numChars= do l <- hex ; tDrop 2 >> return l
 #endif
 
 
