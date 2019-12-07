@@ -11,18 +11,21 @@
 -- |
 --
 -----------------------------------------------------------------------------
-{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE CPP, ScopedTypeVariables #-}
 module Transient.Move.Utils (initNode,initNodeDef, initNodeServ, inputNodes, simpleWebApp, initWebApp
 , onServer, onBrowser, atServer, atBrowser, runTestNodes)
  where
 
 --import Transient.Base
 import Transient.Internals
+import Transient.Logged
 import Transient.Move.Internals
 import Control.Applicative
 import Control.Monad.State
 import Data.IORef
 import System.Environment
+import System.IO.Error
+import Data.Typeable
 import Data.List((\\))
 
 import Control.Exception hiding(onException)
@@ -54,23 +57,47 @@ import Control.Exception hiding(onException)
 --
 initNode :: Loggable a => Cloud a -> TransIO a
 initNode app= do
-   node <- getNodeParams
-   --abduce
-   initWebApp node  app
+   node <- getNodeParams 
+
+   rport <- liftIO $ newIORef $ nodePort node
+   node' <- return node `onException'` ( \(e :: IOException) -> do
+             if (ioeGetErrorString e ==  "resource busy") 
+              then do
+                 liftIO $ putStr "Port busy: " >> print (nodePort node)
+                 continue
+                 port <- liftIO $ atomicModifyIORef rport $ \p -> (p+1,p+1)
+                 return node{nodePort= port}
+              else return node )
+   return () !> ("NODE", node')
+   initWebApp node' app
 
 
 getNodeParams  :: TransIO Node
 getNodeParams  =
-      if isBrowserInstance then  liftIO createWebNode else do
+      if isBrowserInstance then  liftIO createWebNode else
+#ifdef ghcjs_HOST_OS
+              empty
+#else
+        do
           oneThread $ option "start" "re/start node"
           host <- input (const True) "hostname of this node. (Must be reachable)? "
           port <- input  (const True) "port to listen? "
           liftIO $ createNode host port
+         <|> getCookie
 
+    where
+    getCookie= do
+        if isBrowserInstance then return() else do
+          option "cookie" "set the cookie"
+          c <- input (const True) "cookie: "
+          liftIO $ writeIORef rcookie  c
+        empty
+#endif
+    
 initNodeDef :: Loggable a => String -> Int -> Cloud a -> TransIO a
 initNodeDef host port app= do
    node <- def <|> getNodeParams
-   initWebApp node   app
+   initWebApp node app
    where
    def= do
         args <- liftIO  getArgs
@@ -147,7 +174,7 @@ inputNodes= onServer $ do
 -- > ./program
 --
 --
-simpleWebApp :: Loggable a => Integer -> Cloud a -> IO ()
+simpleWebApp :: (Typeable a, Loggable a) => Integer -> Cloud a -> IO ()
 simpleWebApp port app = do
    node <- createNode "localhost" $ fromIntegral port
    keep $ initWebApp node app
@@ -160,7 +187,7 @@ initWebApp node app=  do
 
     conn <- defConnection
     liftIO $ writeIORef (myNode conn)  node
-    addNodes  [node]
+    setNodes  [node]
     serverNode <- getWebServerNode  :: TransIO Node
 
     mynode <- if isBrowserInstance
@@ -169,38 +196,10 @@ initWebApp node app=  do
                         return node
                     else return serverNode
 
-
     runCloud' $ do
         listen mynode <|> return()
-        wormhole serverNode  app  
+        wormhole serverNode  app
 
--- | only execute if the the program is executing in the browser. The code inside can contain calls to the server.
--- Otherwise return empty (so it stop the computation and may execute alternative computations).
-onBrowser :: Cloud a -> Cloud a
-onBrowser x= do
-     r <- local $  return isBrowserInstance
-     if r then x else empty
-
--- | only executes the computaion if it is in the server, but the computation can call the browser. Otherwise return empty
-onServer :: Cloud a -> Cloud a
-onServer x= do
-     r <- local $  return isBrowserInstance
-     if not r then x else empty
-
-
--- | If the computation is running in the server, translates i to the browser and return back. 
--- If it is already in the browser, just execute it
-atBrowser :: Loggable a => Cloud a -> Cloud a
-atBrowser x= do
-        r <- local $  return isBrowserInstance
-        if r then x else atRemote x
-
--- | If the computation is running in the browser, translates i to the server and return back. 
--- If it is already in the server, just execute it
-atServer :: Loggable a => Cloud a -> Cloud a
-atServer x= do
-        r <- local $  return isBrowserInstance
-        if not r then x else atRemote x
          
 -- | run N nodes (N ports to listen) in the same program. For testing purposes.
 -- It add them to the list of known nodes, so it is possible to perform `clustered` operations with them.

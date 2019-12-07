@@ -1,3 +1,10 @@
+#!/usr/bin/env execthirdlinedocker.sh
+--  info: use sed -i 's/\r//g' file if report "/usr/bin/env: ‘execthirdlinedocker.sh\r’: No such file or directory"
+-- runghc    -i../transient/src -i../transient-universe/src -i../axiom/src   $1 ${2} ${3}
+
+--  mkdir -p ./static && ghcjs --make   -i../transient/src -i../transient-universe/src  -i../axiom/src -i../ghcjs-perch/src $1 -o static/out && runghc   -i../transient/src -i../transient-universe/src -i../axiom/src   $1 ${2} ${3}
+
+
 module Main where
 
 import           Control.Monad
@@ -8,47 +15,24 @@ import           Transient.Base
 import           Transient.Indeterminism
 import           Transient.Logged
 import           Transient.Move
-import           Transient.Stream.Resource
+import           Transient.Move.Utils
+import           GHCJS.HPlay.View  hiding (input)
 import           Control.Applicative
 import           System.Info
 import           Control.Concurrent
 
-main = do
+main = keep $ rerun "config" $ do
+  logged $ liftIO $ do
+     putStrLn "configuring the program"
+     putStrLn "The program will not ask again in further executions within this folder"
+  
+  host <- logged $ input (const True)  "host? "
+  port <- logged $ input (const True)  "port? "
+  checkpoint
+  
+  liftIO $ putStrLn $ "Running server at " ++ host ++ ":" ++ show port
+  node <- liftIO $ createNode host port
+  initWebApp node $ do 
 
-  let nodes= [createNode "localhost" 2020, createNode "192.168.99.100" 2020]
-  args  <- getArgs
-  let [localnode, remote]= if length args > 0 then nodes
-                                     else reverse nodes
-
-
-  runCloud' $ do
-    onAll $ addNodes nodes
-    listen localnode <|> return  ()
-    hello <|> helloworld <|> stream localnode
-
-hello= do
-    local $  option  "hello"  "each computer say hello"
-
-    r <- clustered  $  do
-                      node <- getMyNode
-                      onAll . liftIO . print $ "hello " ++ os
-                      return ("hello from",os,arch, nodeHost node)
-
-    lliftIO $ print r
-
-helloworld= do
-    local $ option "helloword"  "both computers compose \"hello world\""
-    r <- mclustered  $  return $ if  os== "linux" then "hello " else "world"
-    lliftIO $ print r
-
-
-stream remoteHost= do
-    local $ option "stream" "stream from the Linux node to windows"
-    let fibs=  0 : 1 : zipWith (+) fibs (tail fibs) :: [Int]   -- fibonacci numbers
-
-    r <- runAt remoteHost $ local $ do
-                     r <-  threads 1 $ choose $ take 10 fibs
-                     liftIO $ putStr os >> print r
-                     liftIO $ threadDelay 1000000
-                     return r
-    lliftIO $ print r
+     local $ render $ rawHtml $ p "Hello world"
+  

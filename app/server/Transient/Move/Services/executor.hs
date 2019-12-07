@@ -18,7 +18,7 @@ import Transient.Internals
 import Transient.Move.Services.Executor
 import Transient.Move.Internals
 import Transient.Move.Utils
-import Transient.Logged(maybeFromIDyn)
+-- import Transient.Logged(maybeFromIDyn)
 import Transient.Move.Services
 import Transient.Move.Services.Executor
 import Control.Applicative
@@ -51,7 +51,7 @@ main = do
                 , serve networkExecuteStreamIt'
                 , serve getLogIt
                 , serve getProcessesIt]
-                empty 
+                (return ())
 
 getProcessesIt :: GetProcesses -> Cloud [String]
 getProcessesIt _= localIO $ do

@@ -34,32 +34,31 @@ import Unsafe.Coerce
 import System.IO.Unsafe
 import Data.IORef
 import qualified Data.Map as M
-import GHC.Conc
+-- import GHC.Conc
 import Data.Maybe(fromMaybe)
 import Control.Exception
 import qualified Data.ByteString.Lazy.Char8   as BS
 import qualified Data.ByteString.Char8 as BSS
-
+import System.Exit 
 
 
    
 main = do
    putStrLn "Starting Transient monitor"
    keep $ runService monitorService 3000 
- 
                         [serve receiveStatus
                         ,serve returnInstances
                         ,serve reReturnInstances
-                        
                         ,serve receiveFromNodeStandardOutputIt
                         ,serve sendToNodeStandardInputIt
                         ,serve getLogIt
                         ]
-                        empty 
+                        (return ()) 
+
 
 
 {- ping is not used to determine healt of services. The client program notify the
-   monitor when a service fails, with reInitService.
+   monitor wShen a service fails, with reInitService.
 pings =  do
   
   localIO $ print $ "INITIATING PINGSSSSSSSSSSSSSSSSSSSSSSS"
@@ -95,12 +94,12 @@ withBlockingService serv proc= do
                                    Just () -> (map,True)
    if beingDone 
     then do
-         --localIO $ threadDelay 3000000
-         withBlockingService serv proc
+      --localIO $ threadDelay 3000000
+      withBlockingService serv proc
     else do
-       r <- proc
-       localIO $ atomicModifyIORef blockings $ \map -> (M.delete serv map,())
-       return r
+      r <- proc
+      localIO $ atomicModifyIORef blockings $ \map -> (M.delete serv map,())
+      return r
 
 -- | gets a node with a service, which probably failed and return other n instances of the same service.
 -- This is used to implement failover.
@@ -113,52 +112,48 @@ reReturnInstances (ident, node, num)=  do
 -- among all the nodes which have monitoService executables running and connected 
 returnInstances :: (String, Service, Int) -> Cloud [Node] 
 returnInstances (ident, service, num)= withBlockingService service $ do
-       return () !> "RETURNINSTANCES"
        nodes <- local $ findInNodes service >>= return . take num
 
        let n= num - length nodes
        if n <= 0 then return $ take num nodes 
-        else  return nodes <>  requestInstall ident service n
+        else  return nodes <> requestInstall ident service n 
     where
 
     requestInstall :: String -> Service -> Int -> Cloud [ Node]
     requestInstall ident service num=  do
-      ns <- local getEqualNodes  
-      return () !> ("equal",ns)    
-      auth <-   callNodes' ns (<>) mempty  $  localIO $ authorizeService ident service >>=  \x -> return [x]
-      return () !> auth
-      let nodes = map fst $ filter  snd  $ zip ns auth 
-          nnodes= length nodes
-          pernode= num `div` nnodes
-          lacking= num `rem` nnodes
-          (nodes1,nodes2)= splitAt  lacking nodes
-      return () !> (pernode,lacking,nodes1,nodes2)
-      rs <- callNodes' nodes1 (<>) mempty (installHere  service (pernode+1)) <>           
-            callNodes' nodes2 (<>) mempty (installHere  service pernode)
-      local $ addNodes rs 
-      ns <- onAll getNodes
-      
-      return rs   !>  ("MONITOR RETURN---------------------------------->", rs)
+        ns <-  local getEqualNodes  
+        return () !> ("monitors: ",map nodeHost ns)    
+        auth <- callNodes' ns (<>) mempty  $  localIO $ authorizeService ident service >>=  \x -> return [x]
+        return () !> ("authotorized: ",auth)
+        let nodes = map fst $ filter  snd  $ zip ns auth 
+            nnodes= length nodes
+            pernode= num `div` nnodes
+            lacking= num `rem` nnodes
+            (nodes1,nodes2)= splitAt  lacking nodes
+        return () !> (pernode,lacking,nodes1,nodes2)
+        rs <- callNodes' nodes1 (<>) mempty (installHere  service (pernode+1))  <>           
+              callNodes' nodes2 (<>) mempty (installHere  service pernode)
+        local $ addNodes rs 
+        --ns <- onAll getNodes
+        
+        return rs   -- !>  ("MONITOR RETURN---------------------------------->", rs)
        
     -- installIt = installHere  service <|> installThere  service
     installHere  ::  Service -> Int -> Cloud [ Node]
     installHere  service n= local $  replicateM n installOne
-            where
-            installOne= do
-                    port <- liftIO freePort
-                    install  service port
-                    return () !> "INSTALLED"
+        where
+        installOne= do
+                port <- liftIO freePort
+                install  service port
+                return () !> ("INSTALLED",n)
 
-                    thisNode <- getMyNode
-                    let node= Node (nodeHost thisNode)  port Nothing  (service ++ relayinfo thisNode)  -- node to be published
-                    addNodes [node] 
-                    return node
-              `catcht` \(e :: SomeException) ->  liftIO (putStr "INSTALLLLLLLLLLLLLLL2222222: " >> print e) >> empty
-              
-            relayinfo mon= if nodeHost mon /= "localhost" then [("relay",show(nodeHost mon,nodePort mon))] else []
-      
-
-
+                thisNode <- getMyNode
+                let node= Node (nodeHost thisNode)  port Nothing  (service ++ relayinfo thisNode)  -- node to be published
+                addNodes [node] 
+                return node
+          `catcht` \(e :: SomeException) ->  liftIO (putStr "INSTALL error: " >> print e) >> empty
+          
+        relayinfo mon= if nodeHost mon /= "localhost" then [("relay",show(nodeHost mon,nodePort mon))] else []
 
 
 
@@ -190,25 +185,25 @@ tryInstall service = do
 
 
 tryDocker service host port program= do
-     image <- emptyIfNothing $ lookup "image" service
-     path <- Transient $ liftIO $ findExecutable "docker"    -- return empty if not found
-     liftIO $ callProcess path ["run", image,"-p"," start/"++ host++"/"++ show port++ " " ++ program]
+    image <- emptyIfNothing $ lookup "image" service
+    path <- Transient $ liftIO $ findExecutable "docker"    -- return empty if not found
+    liftIO $ callProcess path ["run", image,"-p"," start/"++ host++"/"++ show port++ " " ++ program]
 
 
 tryExec program host port= do
-     path <-  Transient $ liftIO $ findExecutable program  -- would abandon (empty) if the executable is not found
-     spawnProgram program host port  --  !>"spawn"
-     where
-     spawnProgram  program host port= do
+    path <-  Transient $ liftIO $ findExecutable program  -- would abandon (empty) if the executable is not found
+    spawnProgram program host port  --  !>"spawn"
+    where
+    spawnProgram  program host port= do
 
-          let prog = pathExe  program host port
-          liftIO $ putStr  "executing: " >> putStrLn prog
+        let prog = pathExe  program host port
+        liftIO $ putStr  "executing: " >> putStrLn prog
 
-          (networkExecuteStreamIt prog >> empty) <|> return () !> "INSTALLING"
-          liftIO $ threadDelay 2000000
+        (networkExecuteStreamIt prog >> empty) <|> return () !> "INSTALLING"
+        liftIO $ threadDelay 2000000
 
-          return()                             !> ("INSTALLED", program)
-          where
+        return()                             !> ("INSTALLED", program,port)
+          
           
 pathExe  program host port=
                  program  ++ " -p start/" ++  (host ::String) 
@@ -218,24 +213,23 @@ pathExe  program host port=
 
 
 
-
+ 
 installGit package  = liftIO $  do
+    let packagename = name package
+    when (null packagename) $ error $ "source for \""++package ++ "\" not found"
+    callProcess  "git" ["clone",package]
+    liftIO $ putStr package >> putStrLn " cloned"
+    setCurrentDirectory packagename 
+    callProcess  "cabal" ["install","--force-reinstalls"]
+    setCurrentDirectory ".."
 
-                let packagename = name package
-                when (null packagename) $ error $ "source for \""++package ++ "\" not found"
-                callProcess  "git" ["clone",package]
-                liftIO $ putStr package >> putStrLn " cloned"
-                setCurrentDirectory packagename
-                callProcess  "cabal" ["install","--force-reinstalls"]
-                setCurrentDirectory ".."
 
-   
-                where
-                name url=  slash . slash . slash $ slash url
-                  where
-                  slash= tail1 . dropWhile (/='/')
-                  tail1 []=[]
-                  tail1 x= tail x
+    where
+    name url=  slash . slash . slash $ slash url
+      where
+      slash= tail1 . dropWhile (/='/')
+      tail1 []=[]
+      tail1 x= tail x
 
 
 -------------------------execution ----------------------------
@@ -276,7 +270,7 @@ rinput :: IORef (M.Map String Handle)
 rinput= unsafePerformIO $ newIORef M.empty 
 
 
-logFolder= "./.log/"
+logFolder= "./log/"
 
 logFileName ('.':expr) = logFileName expr
 logFileName expr= logFolder ++ subst expr ++ ".log"
@@ -291,25 +285,27 @@ logFileName expr= logFolder ++ subst expr ++ ".log"
 -- as soon as there is any output. It also stream all the standard error in case of exiting with a error status.
 -- to the service caller. invoked by `networkExecuteStream`.
 
-      
-networkExecuteStreamIt :: String  -> TransIO String
-networkExecuteStreamIt expr  =  do
+
+     
+networkExecuteStreamIt :: String -> TransIO String
+networkExecuteStreamIt expr = do
       liftIO $ createDirectoryIfMissing True logFolder
-      
+      blocked <- liftIO $ newMVar () 
       r <- liftIO $ createProcess $ (shell expr){std_in=CreatePipe,std_err=CreatePipe,std_out=CreatePipe}
       liftIO $ atomicModifyIORef rinput $ \map ->   (M.insert expr (input1 r) map,())
    
       let logfile= logFileName  expr 
-      
+
       hlog <- liftIO $ openFile logfile WriteMode 
       liftIO $ hPutStrLn  hlog expr
       liftIO $ hClose hlog    
       
       line <- watch (output r) <|> watch (err r) <|> watchExitError r 
       putMailbox' ("output" ++ expr) line
-      hlog <- liftIO $ openFile logfile AppendMode 
-      liftIO $ hPutStrLn  hlog line
-      liftIO $ hClose hlog    
+      liftIO $ withMVar blocked $ const $ do
+         hlog <- openFile logfile AppendMode 
+         hPutStrLn  hlog line
+         hClose hlog    
       return line
       where
 
@@ -319,9 +315,9 @@ networkExecuteStreamIt expr  =  do
       handle r= h where   (_,_,_,h)= r
 
       watch :: Handle -> TransIO String
-      watch h=    do
+      watch h=   do
         abduce
-        mline  <-  threads 0 $ (parallel $  (SMore <$> hGetLine' h) `catch` \(e :: SomeException) -> return SDone)
+        mline  <- threads 0 $ (parallel $  (SMore <$> hGetLine' h) `catch` \(e :: SomeException) -> return SDone)
         case mline of
            SDone -> empty
            SMore line ->  return line

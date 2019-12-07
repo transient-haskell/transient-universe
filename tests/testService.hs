@@ -1,5 +1,5 @@
 #!/usr/bin/env execthirdlinedocker.sh
-
+--  info: use sed -i 's/\r//g' file if report "/usr/bin/env: ‘execthirdlinedocker.sh\r’: No such file or directory"
 -- cd /projects/transient && cabal install -f debug --force-reinstalls && cd ../transient-universe && cabal install --force-reinstalls && ghc $1 && exec=`dirname $1`/`basename $1 .hs` && cp $exec /opt/cabal/bin/ && echo $exec $2 $3 $4 && $exec $2 $3 $4
 
 {-# LANGUAGE   CPP, ScopedTypeVariables #-}
@@ -27,7 +27,8 @@ import Data.Maybe
 import System.IO
 import System.Process
 import Control.Concurrent
-{-  
+
+{-  TODO 
 
 
  example record updates, distributed database?
@@ -70,7 +71,7 @@ examples= do
      requestAtHost <|> self  <|> distrib
 
 distrib= do
-  local $ option "dis" "request another instance of this program and call it"
+  local $ option "dis" "request another instance of this same program and call it"
   this <- local getMyNode
   localIO $ print this
   [node] <- requestInstance (nodeServices this) 1
@@ -88,18 +89,169 @@ spawn1= do
     localIO $ putStrLn "SPAWNED\n\nUse \"control\" to manage the processes"
     empty
 
+
+self= do
+  local $ option "own"  "call a service of my own program"
+  
+  nod <- local $ getMyNode
+  
+  r <- callService' nod "Alberto" :: Cloud String
+  localIO  $ print r
+  
+selfService str = localIO $ return $ "hello " ++ str
+
+ping1 = do
+        local $ option "ping1" "ping monitor (must have been started)"
+        r <- callService' monitorNode ()
+        localIO $ print (r :: ())
+        
+        
+ping2 = do
+        local $ option "ping" "ping two executors, must return: [((),())]"
+
+        ns <- requestInstance executorService 2
+        r <- mapM ping ns
+        localIO $ print r
+         
+
+          
+singleExec= do
+        local $ option "single" "execution of \"ls -al\" in a executor process"
+        r <- networkExecute "ls -al" ""
+        localIO $ print ("RESULT",r)
+
+
+
+
+stream= do
+          local $ setRState False
+          local $ option "stream"  "start a remote shell with the executor, then executes different command inputs and stream results"
+          r <- networkExecuteStream "bash"
+          s <- local getRState 
+          if s then localIO $ putStr "[bash]" >> print r
+               else  do
+                 local $ setRState True
+                 inputs r  -- the first output of the command is the process identifier
+  where      
+  inputs idproc= do
+        command <- local $ do
+           option "send" "send to the remote shell"
+           input (const True) "command"
+        sendExecuteStream idproc command
+        empty
+        
+        
+fail3requestNew=  do
+    local $ option "fail6"  "try a new instance"
+
+    retries <- onAll $ liftIO $ newIORef (0 :: Int)
+    
+    local $ onException $ retry6 retries
+
+    r <- networkExecute "UNKNOWN COMMAND" ""
+
+    localIO $ print ("LINE=",r :: String )
+
+    where
+    retry6' retries (e@(CloudException node _ _))=  do
+
+         -- localIO $ print ("tried to execute in", node, "exception",e)
+
+         n <- liftIO $ atomicModifyIORef retries $ \n -> (n+1,n+1)
+         liftIO $ print ("NUMBER OF RETRIES",n)
+         continue
+         
+    retry6 retries (e@(CloudException node _ _))= runCloud $ do  -- this handlers run the cloud monad
+         -- localIO $ print ("tried to execute in", node, "exception",e)
+
+         n <- onAll $ liftIO $ atomicModifyIORef retries $ \n -> (n+1,n+1)
+         localIO $ print ("NUMBER OF RETRIES",n)
+         
+         if n == 3 then do
+               localIO $ putStrLn "failed after three retries, reclaiming new instance"
+               local continue
+               [node'] <- requestInstanceFail node  1
+               localIO $ print ("NEW NODE FOR SERVICE", node')
+
+         else if  n < 6  then local continue 
+         
+         else  localIO $ print "failed after six retries with two instances, aborting"
+         
+
+
+failThreeTimes=  do
+    local $ option "fail"  "fail after three retries"
+    
+ 
+    retries <- onAll $ liftIO $ newIORef (0 :: Int)
+    
+    let retry3 e=  do
+         liftIO $ print e
+         n <- liftIO $ atomicModifyIORef retries $ \n -> (n+1,n+1)
+         liftIO $ print ("NUMBER OF RETRIES",n)
+         if n < 3 then continue else  do
+               liftIO $ print "failed after three retries"
+               empty
+
+    local $ onException $ \(e :: CloudException) -> retry3 e
+    
+    r <- networkExecute "UNKNOWN COMMAND" ""
+
+    localIO $ print ("LINE=",r :: String )
+ 
+many1=  do
+        local $ option "many" "show how a command is tried to be executed in different executor instances"
+        requestInstance executorService 5
+        retries <- onAll $ liftIO $ newIORef (0 :: Int)
+                   
+        local $ onException $ \e  -> retry1 5 retries e   
+        
+        networkExecute "unknow command" ""
+ 
+        return ()
+        
+        where
+        retry1 n' retries (CloudException node _ _ )=  do
+             liftIO $ print ("tried to execute in", node)
+             n <- liftIO $ atomicModifyIORef retries $ \n -> (n+1,n+1)
+             liftIO $ print ("NUMBER OF RETRIES",n)
+             if n < n' then continue else  do
+                   liftIO $ putStr  "stop after " >> putStr (show n) >> putStrLn "retries"
+                   empty 
+
+requestAtHost= do
+       local $ option "host"  "request the execution of a shell process at a given machine"
+       hostname <- local $ input (const  True)  "enter the hostname (the machine should have monitorService running at port 3000) "
+       process <- local $ input (const  True)  "enter the process to run (for example: bash) "
+       line <- atHost hostname process  <|> inputCommands process
+       localIO $ print ("LINE", line) 
+       where
+       inputCommands process= do
+
+              local $ option "inp" "enter input for the process created"
+              inp <- local $ input  (const True) "input string: " :: Cloud String
+              callService executorService (process, inp) :: Cloud() 
+              empty
+   
+       atHost :: String -> String -> Cloud String
+       atHost hostname process = do
+               executor <- requestInstanceHost hostname executorService
+               callService' executor process
+   
+   
+
 control=  do
   local $ option "control" "control a node or process initiated by previous examples"
   cloudControl
   
   
+-- to be moved to a stndard module in Services
 cloudControl= do
   localIO $ putStrLn "\n...........VISIBLE NODES AND PROCESSES............"
  
   callService monitorService () :: Cloud ()  -- start/ping monitor if not started
   
   localIO $ do
-
               putStr $ nodeHost monitorNode
               putChar ':'
               putStr $ show $ nodePort monitorNode
@@ -216,146 +368,5 @@ in the service, made by the same service executable running in different machine
                update reg
                return reg
 -} 
-
-self= do
-  local $ option "own"  "call a service of my own program"
-  
-  nod <- local $ getMyNode
-  
-  r <- callService' nod "Alberto" :: Cloud String
-  localIO  $ print r
-  
-selfService str = localIO $ return $ "hello " ++ str
-
-ping1 = do
-        local $ option "ping1" "ping monitor (must have been started)"
-        r <- callService' monitorNode ()
-        localIO $ print (r :: ())
-        
-        
-ping2 = do
-        local $ option "ping" "ping two executors, must return: [((),())]"
-
-        ns <- requestInstance executorService 2
-        r <- mapM ping ns
-        localIO $ print r
-         
-
-          
-singleExec= do
-        local $ option "single" "execution of \"ls -al\" in a executor process"
-        r <- networkExecute "ls -al" ""
-        localIO $ print ("RESULT",r)
-
-
-
-
-stream= do
-          local $ setRState False
-          local $ option "stream"  "start a remote shell with the executor, then executes different command inputs and stream results"
-          r <- networkExecuteStream "bash"
-          s <- local getRState 
-          if s then localIO $ putStr "[bash]" >> print r
-               else  do
-                 local $ setRState True
-                 inputs r  -- the first output of the command is the process identifier
-  where      
-  inputs idproc= do
-        command <- local $ do
-           option "send" "send to the remote shell"
-           input (const True) "command"
-        sendExecuteStream idproc command
-        empty
-        
-        
-fail3requestNew=  do
-    local $ option "fail6"  "try a new instance"
-
-    retries <- onAll $ liftIO $ newIORef (0 :: Int)
-    
-    local $ onException $ retry6 retries
-
-    r <- networkExecute "UNKNOWN COMMAND" ""
-
-    localIO $ print ("LINE=",r :: String )
-
-    where
-    retry6 retries (CloudException node _ _ )= runCloud $ do
-         localIO $ print ("tried to execute in", node)
-         n <- onAll $ liftIO $ atomicModifyIORef retries $ \n -> (n+1,n+1)
-         localIO $ print ("NUMBER OF RETRIES",n)
-         
-         if n == 3 then do
-               localIO $ putStrLn "failed after three retries, reclaiming new instance"
-               local continue
-               [node'] <- requestInstanceFail node  1
-               localIO $ print ("NEW NODE FOR SERVICE", node')
-
-         else if  n < 6  then local continue 
-         
-         else  localIO $ print "failed after six retries with two instances, aborting"
-
-
-failThreeTimes=  do
-    local $ option "fail"  "fail after three retries"
-    
- 
-    retries <- onAll $ liftIO $ newIORef (0 :: Int)
-    
-    let retry3 e=  do
-         liftIO $ print e
-         n <- liftIO $ atomicModifyIORef retries $ \n -> (n+1,n+1)
-         liftIO $ print ("NUMBER OF RETRIES",n)
-         if n < 3 then continue else  do
-               liftIO $ print "failed after three retries"
-               empty
-
-    local $ onException $ \(e :: CloudException) -> retry3 e
-    
-    r <- networkExecute "UNKNOWN COMMAND" ""
-
-    localIO $ print ("LINE=",r :: String )
- 
-many1=  do
-        local $ option "many" "show how a command is tried to be executed in different executor instances"
-        requestInstance executorService 5
-        retries <- onAll $ liftIO $ newIORef (0 :: Int)
-                   
-        local $ onException $ \e  -> retry1 5 retries e   
-        
-        networkExecute "unknow command" ""
- 
-        return ()
-        
-        where
-        retry1 n' retries (CloudException node _ _ )=  do
-             liftIO $ print ("tried to execute in", node)
-             n <- liftIO $ atomicModifyIORef retries $ \n -> (n+1,n+1)
-             liftIO $ print ("NUMBER OF RETRIES",n)
-             if n < n' then continue else  do
-                   liftIO $ putStr  "stop after " >> putStr (show n) >> putStrLn "retries"
-                   empty 
-
-requestAtHost= do
-       local $ option "host"  "request the execution of a shell process at a given machine"
-       hostname <- local $ input (const  True)  "enter the hostname (the machine should have monitorService running at port 3000) "
-       process <- local $ input (const  True)  "enter the process to run (for example: bash) "
-       line <- atHost hostname process  <|> inputCommands process
-       localIO $ print ("LINE", line) 
-       where
-       inputCommands process= do
-
-              local $ option "inp" "enter input for the process created"
-              inp <- local $ input  (const True) "input string: " :: Cloud String
-              callService executorService (process, inp) :: Cloud() 
-              empty
-   
-       atHost :: String -> String -> Cloud String
-       atHost hostname process = do
-               executor <- requestInstanceHost hostname executorService
-               callService' executor process
-   
-   
-   
    
    

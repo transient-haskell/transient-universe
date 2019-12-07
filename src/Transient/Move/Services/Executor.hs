@@ -2,6 +2,7 @@ module Transient.Move.Services.Executor where
  
 import Transient.Internals
 import Transient.Move.Internals
+import Transient.Logged
 import Transient.Move.Services
 import Data.IORef
 import System.IO.Unsafe
@@ -152,9 +153,16 @@ controlNodeProcess cmdline= do
       getLogCmd cmd node= callService' node (GetLogCmd cmd)
 
 newtype GetLogCmd= GetLogCmd String  deriving (Read, Show, Typeable)
+instance Loggable GetLogCmd
+
 newtype ExecuteStream= ExecuteStream String deriving (Read, Show, Typeable)
+instance Loggable ExecuteStream
+
 data    ReceiveExecuteStream= ReceiveExecuteStream String BSS.ByteString deriving (Read, Show, Typeable)
+instance Loggable ReceiveExecuteStream
+
 data    GetProcesses= GetProcesses deriving (Read, Show, Typeable)
+instance Loggable GetProcesses
 
 getProcesses ::  Node -> Cloud [String]
 getProcesses node= callService' node GetProcesses

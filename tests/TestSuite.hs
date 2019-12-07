@@ -22,10 +22,13 @@ import           Control.Exception
 
 import           Control.Concurrent(threadDelay )
 
+
+
+#define shouldRun(x)    (local $ do p <-getMyNode; liftIO $ print (p,x) ;assert ( p == (x)) (liftIO $ print p))
+
 -- #define _UPK_(x) {-# UNPACK #-} !(x)
 
-
-shouldRun x=  local $ getMyNode >>= \p ->  assert ( p == (x)) (liftIO $ print p)
+-- shouldRun x=  local $ getMyNode >>= \p ->  assert ( p == (x)) (liftIO $ print p)
 
 service= [("service","test suite")
          ,("executable", "test-transient1")
@@ -47,18 +50,20 @@ main= do
 test=  initNodeServ service  "localhost" 8080 $ do
           node0 <- local getMyNode
           
-          local $ guard (nodePort node0== 8080)       -- only executes in node 8080
+          local $ guard (nodePort node0== 8080)       -- only executes locally in node 8080
 
           [node1, node2] <- requestInstance service 2 
+
 
           local ( option "f" "fire")   <|> return ""       -- to repeat the tests,  remove the "exit" at the end 
 
 
 
-          localIO $ putStrLn "------checking  empty in remote node when the remote call back the caller #46 --------"
+          localIO $ putStrLn "------checking  empty in remote node when the remote call back to the caller #46 --------"
+          
           r <- runAt node1 $ do
-               shouldRun node1
-               runAt node2 $  (runAt node1 $ shouldRun node1 >> empty ) <|>  (shouldRun node2 >> return "world")
+               shouldRun(node1)
+               runAt node2 $  (runAt node1 $ shouldRun(node1) >> empty ) <|>  (shouldRun(node2) >> return "world")
           localIO $ print r
           
 
@@ -91,7 +96,8 @@ test=  initNodeServ service  "localhost" 8080 $ do
           assert (sort (M.toList r) == sort [("hello",2::Int),("world",1)]) $ return r
           
 
-          local $ exit (Nothing  :: Maybe SomeException) -- remove this to repeat the test
+          onAll $ exit (Nothing  :: Maybe SomeException) -- remove this to repeat the test
+             
  
 
 

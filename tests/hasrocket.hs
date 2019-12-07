@@ -11,7 +11,7 @@
 module Main where
 import Transient.Internals
 import Transient.Move
---import Transient.EVars
+import Transient.EVars
 import Control.Applicative
 import Transient.Logged
 import Transient.Move.Utils
@@ -25,14 +25,14 @@ import qualified Data.ByteString.Lazy.Char8  as BS
 import Data.Containers
 import System.IO.Unsafe
 
-import System.Mem.StableName
+-- import System.Mem.StableName
 
 import Control.Concurrent
 import Data.IORef
 import qualified Data.Map as M
 import Control.Exception
 import Control.Monad
-import qualified Control.Concurrent.Chan.Unagi as Unagi
+
 
 rmap= unsafePerformIO $ newIORef M.empty
 
@@ -102,25 +102,5 @@ processMessage broad msg= do
 
 watchBroadcast broad= threads 0 $ readEVar broad
 
-emptyIfNothing= Transient . return
 
-
-data EVar a= EVar  (Unagi.InChan ( StreamData a))
-
-readEVar :: EVar a -> TransIO a
-readEVar (EVar ref1)=  do
-     tchan <-  liftIO $  Unagi.dupChan  ref1
-     mx <-  parallel $   Unagi.readChan tchan `catch` \(e :: SomeException) -> error $ show e
-     case mx of
-      SError e -> finish $ Just e
-      SMore x -> return x
-
-
-newEVar :: TransIO (EVar a)
-newEVar  = Transient $ do
-   (ref, _) <- liftIO $  Unagi.newChan
-   return . Just $ EVar  ref
-
-writeEVar (EVar  ref1) x= liftIO  $ do
-       Unagi.writeChan  ref1 $ SMore x
 

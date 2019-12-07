@@ -32,6 +32,7 @@ library
         build-depends:
             -- ghcjs-base should be installed with
             -- > git clone https://github.com/ghcjs/ghcjs-base
+            -- > cd ghcjs-base
             -- > cabal install --ghcjs --constraint 'primitive < 0.6.4'
             ghcjs-base -any,  
             ghcjs-prim -any,
@@ -45,7 +46,7 @@ library
             filepath -any,
             hashable -any,
             iproute -any,
-            network -any,
+            network >=2.8.0.0 && < 3.0.0.0,
             network-info -any,
             network-uri -any,
             vector -any,
@@ -55,8 +56,9 @@ library
             text -any,
             aeson -any,
             primitive < 0.6.4.0,
-            entropy <= 0.3.6    
-             -- new versions forces the installation of a new cabal version. Tired of that.
+            old-time
+            
+
 
     exposed-modules:
         Transient.Move
@@ -64,6 +66,7 @@ library
         Transient.Move.Internals
         Transient.Move.Utils
         Transient.Move.Services
+        Transient.Move.PubSub
     build-depends:
         base >4 && <5,
         bytestring -any,
@@ -75,6 +78,7 @@ library
         transient >= 0.6.0.0
     default-language: Haskell2010
     hs-source-dirs: src .
+    ghc-options: -O -threaded -rtsopts
 
 executable monitorService
 
@@ -87,6 +91,7 @@ executable monitorService
             process,
             directory,
             bytestring
+            
         hs-source-dirs: app/server/Transient/Move/Services
         main-is: MonitorService.hs
     else
@@ -97,7 +102,7 @@ executable monitorService
 
 
     default-language: Haskell2010
-    ghc-options: -threaded -rtsopts
+    ghc-options: -O -threaded -rtsopts
     
 
 executable executor
@@ -112,6 +117,7 @@ executable executor
             bytestring, 
             aeson,
             time
+            
         hs-source-dirs: app/server/Transient/Move/Services
         main-is: executor.hs
     else
@@ -122,7 +128,7 @@ executable executor
 
 
     default-language: Haskell2010
-    ghc-options: -threaded -rtsopts
+    ghc-options: -O -threaded -rtsopts
 
 executable controlServices
     if !impl(ghcjs >=0.1)
@@ -136,6 +142,7 @@ executable controlServices
             bytestring, 
             aeson,
             time
+            
         hs-source-dirs: app/server/Transient/Move/Services
         main-is: controlServices.hs
     else
@@ -146,7 +153,7 @@ executable controlServices
 
 
     default-language: Haskell2010
-    ghc-options: -threaded -rtsopts
+    ghc-options: -O -threaded -rtsopts
 
 executable test-transient1
 
@@ -161,10 +168,9 @@ executable test-transient1
             filepath -any,
             stm -any,
             HTTP -any,
-            network -any,
+            network >=2.8.0.0 && < 3.0.0.0,
             transformers -any,
             process -any,
-            network -any,
             network-info -any,
             bytestring -any,
             time -any,
@@ -174,7 +180,9 @@ executable test-transient1
             network-uri -any,
             case-insensitive -any,
             hashable -any,
-            aeson
+            aeson,
+            old-time
+            
             
     main-is: TestSuite.hs
     build-depends:
@@ -197,10 +205,9 @@ test-suite test-transient
             filepath -any,
             stm -any,
             HTTP -any,
-            network -any,
+            network >=2.8.0.0 && < 3.0.0.0,
             transformers -any,
             process -any,
-            network -any,
             network-info -any,
             bytestring -any,
             time -any,

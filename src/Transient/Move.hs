@@ -62,7 +62,7 @@ addNodes, addThisNodeToRemote, shuffleNodes,
 --Connection(..), ConnectionData(..), defConnection,
 
 -- ** Querying nodes
-getMyNode, getWebServerNode, getNodes, nodeList, isBrowserInstance,
+getMyNode, getWebServerNode, getNodes, getEqualNodes, nodeList, isBrowserInstance,
 
 
 -- * Running Local Computations
@@ -75,7 +75,7 @@ wormhole, teleport, copyData, fixClosure,
 beamTo, forkTo, callTo, runAt, atRemote, setSynchronous, syncStream,
 
 -- * Running at Multiple Nodes
-clustered, mclustered, callNodes,
+clustered, mclustered, callNodes, callNodes', foldNet, exploreNet, exploreNetUntil,
 
 -- * Messaging
 putMailbox, putMailbox',getMailbox,getMailbox',cleanMailbox,cleanMailbox',
