@@ -55,7 +55,7 @@ import Network.HTTP
 import Data.TCache hiding (onNothing)
 import Data.TCache.Defs hiding (serialize,deserialize)
 
-import Data.ByteString.Lazy.Char8 (pack,unpack)
+import Data.ByteString.Lazy.Char8 (pack,unpack, toStrict)
 import Data.ByteString.Builder
 import qualified Data.Map.Strict as M
 import Control.Arrow (second)
