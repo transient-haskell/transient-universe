@@ -553,6 +553,7 @@ teleport  =  local $ Transient $ do
           Closure closRemote  <- getData `onNothing`  return (Closure 0 )
 
           (closRemote',tosend) <- if closRemote /= 0 -- && no se ha cerrado la conexion
+                                                     -- globalFix en el idConn 
                       -- for localFix
                       then return (closRemote, buildLog log)
                       else do
@@ -632,7 +633,10 @@ socket write/forkThread/readSocket loop for each node.
 -}
 localFix=  localFixServ False False
 type ConnectionId= Int
-globalFix = unsafePerformIO $ newIORef (M.empty :: M.Map ConnectionId [(IdClosure, IORef [ConnectionId ])])
+type HasClosed= Bool
+-- for each connection, the list of closures fixed and the list of connections which created that closure in the remote node
+globalFix = unsafePerformIO $ newIORef (M.empty :: M.Map ConnectionId (HasClosed,[(IdClosure, IORef [ConnectionId ])]))
+-- how to signal that was closed?
 
 data LocalFixData= LocalFixData{ isService :: Bool
                                 , lengthFix :: Int
@@ -667,14 +671,14 @@ localFixServ isService isGlobal= Cloud $ noTrans $ do
          ref <- liftIO $ if not $ isGlobal then newIORef [] else do
                   map <- readIORef globalFix
                   return $ do
-                      l <- M.lookup idConn map
+                      (_,l) <- M.lookup idConn map
                       lookup (hashClosure log) l
 
               `onNothing` do
                   ref <- newIORef []
                   modifyIORef globalFix $ \map ->
-                       let l=  fromMaybe [] $ M.lookup idConn map
-                       in  M.insert idConn  ((hashClosure log, ref):l) map
+                       let (closed,l)=  fromMaybe (False,[]) $ M.lookup idConn map
+                       in  M.insert idConn  (closed,(hashClosure log, ref):l) map
                   return ref
          mmprevFix <- liftIO $ readIORef ref >>= \l -> return $ if Prelude.null l then  Nothing else mprevFix
          let newfix =LocalFixData{ isService = isService
@@ -917,7 +921,9 @@ msend con r= do
             r <- runTrans $ mconnect node
             case r of
                Nothing -> error $ "can not reconnect with " ++ show n
-               Just c -> return c
+               Just c -> do
+                   liftIO$ modifyIORef globalFix $ \m -> M.insert (idConn con) (False,[]) m
+                   return c
           _ -> error "connection with web node closed"
      Just _ -> return con
   let blocked= isBlocked con
@@ -1307,8 +1313,8 @@ mconnect  node'=  do
       node' <- getMyNode
       v <- liftIO $ readMVar (fromJust $ connection  node') -- to force connection in case of calling a service of itself
       if node /= node' ||   null v
-       then  empty
-       else do
+        then  empty
+        else do
           conn<- case connection node of
              Nothing    -> error "checkSelf error"
              Just ref   ->  do
@@ -1340,19 +1346,23 @@ mconnect  node'=  do
                        let (h,p)= read relayinfo
                        connectWebSockets1  h p $  "/relay/"  ++  h  ++ "/" ++ show p ++ "/"
 
-    noParseContext= (ParseContext (error "relay error") (error "relay error")
-                             ::  ParseContext)
+    noParseContext= (ParseContext (error "relay error") (error "relay error") ::  ParseContext)
 
     connectSockTLS host port= do
         return ()                                         !> "connectSockTLS"
 
         let size=8192
-        Connection{myNode=my,comEvent= ev} <- getSData <|> error "connect: listen not set for this node"
-
+        c@Connection{myNode=my,comEvent= ev,connData=rcdata} <- getSData <|> error "connect: listen not set for this node"
+        
         sock  <- liftIO $ connectTo'  size  host $ PortNumber $ fromIntegral port
-        cdata <- liftIO $ newIORef $ Just $ (Node2Node u  sock (error $ "addr: outgoing connection"))
-        conn' <- defConnection >>= \c ->
-                     return c{myNode=my, comEvent= ev,connData= cdata}
+        let cdata= (Node2Node u  sock (error $ "addr: outgoing connection"))
+        cdata' <- liftIO $ readIORef rcdata
+        conn' <- if isNothing cdata'    -- lost connection, reconnect
+           then do liftIO $ writeIORef rcdata $  Just cdata ; return c 
+           else do
+                c <- defConnection 
+                rcdata' <- liftIO $ newIORef $ Just cdata
+                return c{myNode=my, comEvent= ev,connData= rcdata'} 
 
         setData conn'
         input <-  liftIO $ SBSL.getContents sock
@@ -2882,6 +2892,6 @@ connectionTimeouts=  do
                     liftIO $ print $ idConn c
                     liftIO $ mclose c;
                     liftIO $ modifyMVar_ (localClosures c) $ const $ return M.empty
-                    liftIO $ modifyIORef globalFix $ \m -> M.insert (idConn c) [] m
+                    liftIO $ modifyIORef globalFix $ \m -> M.insert (idConn c) (True,[]) m
                      )  toClose
               -- close should put Nothing in connection
