@@ -554,7 +554,7 @@ teleport  =  local $ Transient $ do
           Closure closRemote  <- getData `onNothing`  return (Closure 0 )
 
           (closRemote',tosend) <- if closRemote /= 0 -- && no se ha cerrado la conexion
-                                                     -- globalFix en el idConn 
+                                                     -- globalFix en el idConn
                       -- for localFix
                       then return (closRemote, buildLog log)
                       else do
@@ -922,9 +922,7 @@ msend con r= do
             r <- runTrans $ mconnect node
             case r of
                Nothing -> error $ "can not reconnect with " ++ show n
-               Just c -> do
-                   liftIO$ modifyIORef globalFix $ \m -> M.insert (idConn con) (False,[]) m -- reset the remote accessible closures
-                   return c
+               Just c -> return c
           _ -> error "connection with web node closed"
      Just _ -> return con
   let blocked= isBlocked con
@@ -1354,14 +1352,14 @@ mconnect  node'=  do
 
         let size=8192
         c@Connection{myNode=my,comEvent= ev,connData=rcdata} <- getSData <|> error "connect: listen not set for this node"
-        
+
         sock  <- liftIO $ connectTo'  size  host $ PortNumber $ fromIntegral port
         let cdata= (Node2Node u  sock (error $ "addr: outgoing connection"))
         cdata' <- liftIO $ readIORef rcdata
         conn' <- if isNothing cdata'    -- lost connection, reconnect
            then do liftIO $ writeIORef rcdata $  Just cdata ; return c  !> "RECONNECT"
            else do
-                c <- defConnection 
+                c <- defConnection
                 rcdata' <- liftIO $ newIORef $ Just cdata
                 return c{myNode=my, comEvent= ev,connData= rcdata'}  !> "CONNECT"
 
@@ -2887,15 +2885,15 @@ connectionTimeouts=  do
                      in   isNothing mc || -- check that is not doing some IO
                         (((time - fromJust mc) < delta) {-|| nulify -})) cons !> Data.List.length cons
                   -- time etc are in a IORef
-    mapM_ (\c -> do
+    mapM_ (\c -> liftIO $ do
 
-                    liftIO $ putStr "close "
-                    liftIO $ print $ idConn c
-                    liftIO $ mclose c;
-                    liftIO $ writeIORef (connData c) Nothing
-                    --liftIO$ modifyIORef globalFix $ \m -> M.insert (idConn con) (False,[]) m -- reset the remote accessible closures
+                    putStr "close "
+                    print $ idConn c
+                    mclose c;
+                    writeIORef (connData c) Nothing
+                    modifyIORef globalFix $ \m -> M.insert (idConn c) (False,[]) m -- reset the remote accessible closures
                     -- the above better here than in msend
-                    liftIO $ modifyMVar_ (localClosures c) $ const $ return M.empty
-                    liftIO $ modifyIORef globalFix $ \m -> M.insert (idConn c) (True,[]) m
+                    modifyMVar_ (localClosures c) $ const $ return M.empty
+                    modifyIORef globalFix $ \m -> M.insert (idConn c) (True,[]) m
                      )  toClose
               -- close should put Nothing in connection
