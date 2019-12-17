@@ -90,6 +90,7 @@ import Control.Concurrent.MVar
 import Data.Monoid
 import qualified Data.Map as M
 import Data.List (partition,union,(\\),nub) -- (nub,(\\),intersperse, find, union, length, partition)
+import qualified Data.List(length)
 import Data.IORef
 
 import Control.Concurrent
@@ -922,7 +923,7 @@ msend con r= do
             case r of
                Nothing -> error $ "can not reconnect with " ++ show n
                Just c -> do
-                   liftIO$ modifyIORef globalFix $ \m -> M.insert (idConn con) (False,[]) m
+                   liftIO$ modifyIORef globalFix $ \m -> M.insert (idConn con) (False,[]) m -- reset the remote accessible closures
                    return c
           _ -> error "connection with web node closed"
      Just _ -> return con
@@ -1358,11 +1359,11 @@ mconnect  node'=  do
         let cdata= (Node2Node u  sock (error $ "addr: outgoing connection"))
         cdata' <- liftIO $ readIORef rcdata
         conn' <- if isNothing cdata'    -- lost connection, reconnect
-           then do liftIO $ writeIORef rcdata $  Just cdata ; return c 
+           then do liftIO $ writeIORef rcdata $  Just cdata ; return c  !> "RECONNECT"
            else do
                 c <- defConnection 
                 rcdata' <- liftIO $ newIORef $ Just cdata
-                return c{myNode=my, comEvent= ev,connData= rcdata'} 
+                return c{myNode=my, comEvent= ev,connData= rcdata'}  !> "CONNECT"
 
         setData conn'
         input <-  liftIO $ SBSL.getContents sock
@@ -2869,7 +2870,7 @@ atServer x= do
 -- delete connections.
 -- delete receiving closures before sending closures
 
-delta= 3*60
+delta= 60 -- 3*60
 connectionTimeouts  :: TransIO ()
 connectionTimeouts=  do
     --option ("check" ::String) "check"
@@ -2877,20 +2878,23 @@ connectionTimeouts=  do
     liftIO $ threadDelay 10000000
     return () !> "timeouts"
     TOD time _ <- liftIO $  getClockTime
-    toClose <- liftIO $  atomicModifyIORef connectionList $
+    toClose <- liftIO $  atomicModifyIORef connectionList $ \ cons ->
                   Data.List.partition (\con ->
                      let mc= unsafePerformIO $ readMVar $ isBlocked con
-                         nulify= unsafePerformIO $ do
-                                      writeIORef (connData con) Nothing
-                                      return False
-                     in   isNothing mc ||
-                        (((time - fromJust mc) < delta) || nulify))
+                         --nulify= unsafePerformIO $ do
+                         --             writeIORef (connData con) Nothing
+                         --             return False
+                     in   isNothing mc || -- check that is not doing some IO
+                        (((time - fromJust mc) < delta) {-|| nulify -})) cons !> Data.List.length cons
                   -- time etc are in a IORef
     mapM_ (\c -> do
 
                     liftIO $ putStr "close "
                     liftIO $ print $ idConn c
                     liftIO $ mclose c;
+                    liftIO $ writeIORef (connData c) Nothing
+                    --liftIO$ modifyIORef globalFix $ \m -> M.insert (idConn con) (False,[]) m -- reset the remote accessible closures
+                    -- the above better here than in msend
                     liftIO $ modifyMVar_ (localClosures c) $ const $ return M.empty
                     liftIO $ modifyIORef globalFix $ \m -> M.insert (idConn c) (True,[]) m
                      )  toClose

@@ -56,6 +56,8 @@ library
             text -any,
             aeson -any,
             primitive < 0.6.4.0,
+            entropy <= 0.3.6, 
+
             old-time
             
 
