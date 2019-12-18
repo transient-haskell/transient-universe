@@ -67,7 +67,7 @@ import qualified JavaScript.Web.MessageEvent           as JM
 import           GHCJS.Prim (JSVal)
 import           GHCJS.Marshal(fromJSValUnchecked)
 import qualified Data.JSString                          as JS
-import Data.Text.Encoding
+-- import Data.Text.Encoding
 import           JavaScript.Web.MessageEvent.Internal
 import           GHCJS.Foreign.Callback.Internal (Callback(..))
 import qualified GHCJS.Foreign.Callback                 as CB
@@ -478,14 +478,11 @@ wormhole' node (Cloud comp) = local $ Transient $ do
                              <***  do when (isJust mclosure) . setData $ fromJust mclosure
 
 
-{-
-#ifndef ghcjs_HOST_OS
-type JSString= String
-pack= id
--}
 
-
-#endif
+-- #ifndef ghcjs_HOST_OS
+-- type JSString= String
+-- pack= id
+-- #endif
 
 data CloudException = CloudException Node IdClosure   String deriving (Typeable, Show, Read)
 

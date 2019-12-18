@@ -34,7 +34,7 @@ library
             -- > git clone https://github.com/ghcjs/ghcjs-base
             -- > cd ghcjs-base
             -- > cabal install --ghcjs --constraint 'primitive < 0.6.4'
-            ghcjs-base -any,  
+            ghcjs-base -any,
             ghcjs-prim -any,
             random -any
     else
@@ -54,10 +54,10 @@ library
             process -any,
             random -any,
             text -any,
-            aeson -any,
-            primitive < 0.6.4.0,
-            entropy <= 0.3.6, 
-
+            aeson -any
+            --primitive < 0.6.4.0
+            -- entropy <= 0.3.6, 
+    build-depends:
             old-time
             
 
