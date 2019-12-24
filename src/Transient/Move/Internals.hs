@@ -30,7 +30,10 @@ import Control.Applicative
 import System.Random
 import Data.String
 import qualified Data.ByteString.Char8                  as BC
+import qualified Data.ByteString.Lazy.Char8             as BS  
+
 import System.Time
+import Data.ByteString.Builder
 
 
 
@@ -48,9 +51,6 @@ import qualified Network.WebSockets.Connection          as WS
 import           Network.WebSockets.Stream hiding(parse)
 
 import qualified Data.ByteString                        as B(ByteString,concat)
-import Data.ByteString.Builder
-import           Data.ByteString.Lazy.Char8             as BS  hiding (empty,  putStr,putStrLn,filter, null)
-import qualified Data.ByteString.Lazy.Char8             as BS(null)
 import qualified Data.ByteString.Lazy.Internal          as BLC
 import qualified Data.ByteString.Lazy                   as BL
 import           Network.Socket.ByteString              as SBS(sendMany,sendAll,recv)
@@ -110,13 +110,13 @@ instance (Loggable a,Loggable b) => Loggable (a,b)
 instance (Loggable a,Loggable b, Loggable c) => Loggable (a,b,c)
 instance (Loggable a,Loggable b, Loggable c,Loggable d) => Loggable (a,b,c,d)
 
-#ifdef ghcjs_HOST_OS
+-- #ifdef ghcjs_HOST_OS
 
 
-intDec i= Builder $ \s -> pack (show i) <> s
-int64Dec i=  Builder $ \s -> pack (show i) <> s
+-- intDec i= Builder $ \s -> pack (show i) <> s
+-- int64Dec i=  Builder $ \s -> pack (show i) <> s
 
-#endif
+-- #endif
 
 instance Loggable a => Loggable[a]
 instance (Loggable k, Ord k, Loggable a) => Loggable (M.Map k a)  where
@@ -567,7 +567,7 @@ teleport  =  local $ Transient $ do
 
 
                              return () !> ("LOCALFIXXXXXXXXXX",localfix)
-                             let dropped= lazyByteString $ drop (fromIntegral $ lengthFix localfix) $ toLazyByteString $  fulLog log
+                             let dropped= lazyByteString $ BS.drop (fromIntegral $ lengthFix localfix) $ toLazyByteString $  fulLog log
                              if sent then return (closure localfix, dropped)
                              else if isService localfix then return (0,  dropped)
                              else droplog  $ prevFix localfix -- look for other previous closure sent
@@ -680,7 +680,7 @@ localFixServ isService isGlobal= Cloud $ noTrans $ do
                   return ref
          mmprevFix <- liftIO $ readIORef ref >>= \l -> return $ if Prelude.null l then  Nothing else mprevFix
          let newfix =LocalFixData{ isService = isService
-                                 , lengthFix = fromIntegral $ length $ toLazyByteString $ fulLog log
+                                 , lengthFix = fromIntegral $ BS.length $ toLazyByteString $ fulLog log
                                  , closure = hashClosure log
                                  , fixedConnections = ref
                                  , prevFix = mmprevFix}
@@ -869,10 +869,10 @@ instance Loggable NodeMSG where
       restOfIt= lazyByteString <$> giveParseString
 
 instance Show Builder where
-   show b= unpack $ toLazyByteString b
+   show b= BS.unpack $ toLazyByteString b
 
 instance Read Builder where
-   readsPrec _ str= [(lazyByteString $ pack $ read str,"")]
+   readsPrec _ str= [(lazyByteString $ BS.pack $ read str,"")]
 
 
 instance Loggable a => Loggable (StreamData a) where
@@ -993,13 +993,13 @@ msend (Connection _ _ _ (Just (Node2Web sconn)) _ _ _ _ _ _ _) r=
 #else
 msend con r= do
    let blocked= isBlocked con
-   c <- liftIO $ readIORef con
+   c <- liftIO $ readIORef $ connData con
    case c of
      Just (Web2Node sconn) -> liftIO $  do
           modifyMVar_ (isBlocked con) $ const $ do -- JavaScript.Web.WebSocket.send (serialize r) sconn -- (JS.pack $ show r) sconn    !> "MSEND SOCKET"
               let bs = toLazyByteString $ serialize r
-              JavaScript.Web.WebSocket.send  (toLazyByteString $ int64Dec $ length bs) sconn
-              JavaScript.Web.WebSocket.send bs sconn
+              JavaScript.Web.WebSocket.send  (pack $ show $ BS.length bs) sconn
+              JavaScript.Web.WebSocket.send  ( pack $ show bs) sconn   -- TODO OPTIMIZE THAT!
 
               TOD time _ <- getClockTime
               return $ Just time
@@ -1023,7 +1023,7 @@ msend (Connection _ _ remoten (Just (Web2Node sconn)) _ _ blocked _  _ _ _) r= l
 #ifdef ghcjs_HOST_OS
 
 mread con= do
-   sconn <- readIORef $ connData con
+   sconn <- liftIO $ readIORef $ connData con
    case sconn of
     Just (Web2Node sconn) -> wsRead sconn
     Nothing               -> error "connection not opened"
@@ -1038,12 +1038,12 @@ wsRead ws= do
   dat <- react (hsonmessage ws) (return ())
   case JM.getData dat of
     JM.StringData ( text)  ->  do
-      setParseString $ toLazyByteString $ encodeUtf8  (unsafeCoerce text :: JSString)
+      setParseString $ BS.pack  . JS.unpack $ text    -- TODO OPTIMIZE THAT
 
       len <- integer
 
       deserialize     -- return (read' $ JS.unpack str)
-                 !> ("Browser webSocket read", str)  !> "<------<----<----<------"
+                 !> ("Browser webSocket read", text)  !> "<------<----<----<------"
     JM.BlobData   blob -> error " blob"
     JM.ArrayBufferData arrBuffer -> error "arrBuffer"
 
@@ -1451,11 +1451,16 @@ mconnect  node'=  do
 
 #else
   mconnect1 (node@(Node host port (Just pool) _))= do
-     conn' <- getSData <|> error "connect: listen not set for this node"
-     if nodeHost node== "webnode" then return  conn'{connData= Just Self} else do
+     conn <- getSData <|> error "connect: listen not set for this node"
+     if nodeHost node== "webnode" 
+      then  do
+                        liftIO $ writeIORef (connData conn)  $ Just Self
+                        return  conn
+      else do
         ws <- connectToWS host $ PortNumber $ fromIntegral port
 --                                                           !> "CONNECTWS"
-        let conn=  conn'{connData= Just  (Web2Node ws)}
+        liftIO $ writeIORef (connData conn)  $ Just (Web2Node ws)
+
 --                                                           !>  ("websocker CONNECION")
         let parseContext =
                       ParseContext (error "parsecontext not available in the browser")
@@ -1466,7 +1471,7 @@ mconnect  node'=  do
         liftIO $ modifyMVar_ pool $  \plist -> return $ conn':plist
         putMailbox  (conn',parseContext,node)  -- tell listenResponses to watch incoming responses
         delData $ Closure undefined
-        return  conn
+        return  conn'
 #endif
 
   u= undefined
@@ -1737,7 +1742,7 @@ listenNew port conn'=  do
           do
            conn <- getSData
            myCookie <- liftIO $ readIORef rcookie
-           if toStrict myCookie /=  hisCookie
+           if BS.toStrict myCookie /=  hisCookie
             then do
               sendRaw conn "NOK"
               error "connection attempt with bad cookie"
@@ -2219,7 +2224,7 @@ listen node = onAll $ do
         events <- liftIO $ newIORef M.empty
         rnode  <- liftIO $ newIORef node
         conn <-  defConnection >>= \c -> return c{myNode=rnode,comEvent=events}
-        liftIO $ atomicModifyIORef connectionList $ \m -> (M.insert (idConn conn) conn m,())
+        liftIO $ atomicModifyIORef connectionList $ \m ->  (conn: m,())
 
         setData conn
         r <- listenResponses
@@ -2262,7 +2267,7 @@ readFrom con= do
   cd <- readIORef $ connData con
   case cd of
     Just(TLSNode2Node ctx)   -> recvTLSData ctx
-    Just(Node2Node _ sock _) -> toStrict  <$> loop sock
+    Just(Node2Node _ sock _) -> BS.toStrict  <$> loop sock
     _ -> error "readFrom error"
   where
   bufSize= 4098
@@ -2385,7 +2390,7 @@ data HTTPMethod= GET | POST deriving (Read,Show,Typeable,Eq)
 
 instance Loggable HTTPMethod
 
-getFirstLine=  (,,) <$> getMethod <*> (toStrict <$> getUri) <*> getVers
+getFirstLine=  (,,) <$> getMethod <*> (BS.toStrict <$> getUri) <*> getVers
     where
     getMethod= parseString
     getUri= parseString
@@ -2426,11 +2431,11 @@ getHeaders =  manyTill paramPair  (string "\r\n\r\n")       -- !>  (method, uri,
   getParam= do
       dropSpaces
       r <- tTakeWhile (\x -> x /= ':' && not (endline x))
-      if BS.null r || r=="\r"  then  empty  else  anyChar >> return (toStrict r)
+      if BS.null r || r=="\r"  then  empty  else  anyChar >> return (BS.toStrict r)
       where
       endline c= c== '\r' || c =='\n'
 
-  getParamValue= toStrict <$> ( dropSpaces >> tTakeWhile  (\x -> not (endline x)))
+  getParamValue= BS.toStrict <$> ( dropSpaces >> tTakeWhile  (\x -> not (endline x)))
       where
       endline c= c== '\r' || c =='\n'
 

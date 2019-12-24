@@ -50,6 +50,7 @@ runService,callService, callService',callServiceFail,serve,ping
 
 import Transient.Internals
 import Transient.Logged
+import Transient.Parse
 import Transient.Move.Internals
 import Transient.Move.Utils
 
@@ -73,10 +74,10 @@ import Unsafe.Coerce
 import Data.Monoid 
 import Data.String
 import qualified Data.ByteString.Char8 as BSS
+import qualified Data.ByteString.Lazy.Char8 as BS
 
 #ifndef ghcjs_HOST_OS
 import System.Directory
-import qualified Data.ByteString.Lazy.Char8 as BS
 import Data.ByteString.Builder
 import Transient.Parse
 import GHC.IO.Handle
