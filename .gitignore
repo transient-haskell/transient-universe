@@ -53,3 +53,4 @@ darcs*
 /src/style.css
 *.back
 a.out
+*.log
