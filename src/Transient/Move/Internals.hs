@@ -195,12 +195,14 @@ runCloud x= do
 tlsHooks ::IORef (SData -> BS.ByteString -> IO ()
                  ,SData -> IO B.ByteString
                  ,NS.Socket -> BS.ByteString -> TransIO ()
-                 ,String -> NS.Socket -> BS.ByteString -> TransIO ())
+                 ,String -> NS.Socket -> BS.ByteString -> TransIO ()
+                 ,SData -> IO ())
 tlsHooks= unsafePerformIO $ newIORef
                  ( notneeded
                  , notneeded
                  , \_ i -> tlsNotSupported i
-                 , \_ _ _-> return())
+                 , \_ _ _-> return()
+                 , \_ -> return())
 
   where
   notneeded= error "TLS hook function called"
@@ -214,7 +216,7 @@ tlsHooks= unsafePerformIO $ newIORef
          sendRaw conn $ BS.pack $ "HTTP/1.0 525 SSL Handshake Failed\r\nContent-Length: 0\nConnection: close\r\n\r\n"
        else return ()
 
-(sendTLSData,recvTLSData,maybeTLSServerHandshake,maybeClientTLSHandshake)= unsafePerformIO $ readIORef tlsHooks
+(sendTLSData,recvTLSData,maybeTLSServerHandshake,maybeClientTLSHandshake,tlsClose)= unsafePerformIO $ readIORef tlsHooks
 
 
 #endif
@@ -920,7 +922,6 @@ msend con r= do
             case r of
                Nothing -> error $ "can not reconnect with " ++ show n
                Just c -> return c
-          _ -> error "connection with web node closed"
      Just _ -> return con
   let blocked= isBlocked con
   c <- liftIO $ readIORef $ connData con
@@ -1209,9 +1210,10 @@ mclose :: MonadIO m => Connection -> m ()
 mclose con= do
    c <- liftIO $ readIORef $ connData con
    case c of
-      Just (Node2Node _  sock _ ) -> liftIO $ withMVar (isBlocked con) $ const $ liftIO $ NS.close sock
+      Just (TLSNode2Node ctx) -> liftIO $ withMVar (isBlocked con) $ const $ liftIO $ tlsClose ctx
+      Just (Node2Node _  sock _ ) -> liftIO $ withMVar (isBlocked con) $ const $ liftIO $ NS.close sock !> "SOCKET CLOSE"
 
-      Just (Node2Web sconn ) -> liftIO $ WS.sendClose sconn ("closemsg" :: BS.ByteString)
+      Just (Node2Web sconn ) -> liftIO $ WS.sendClose sconn ("closemsg" :: BS.ByteString) !> "WEBSOCkET CLOSE"
       _ -> return()
 {-
 mclose (Connection _ _ _
@@ -1692,9 +1694,9 @@ listenNew port conn'=  do
    id1 <- genGlobalId
    let conn= conn'{idConn=id1,closChildren=chs, remoteNode= noNode}
 
-   liftIO $ atomicModifyIORef connectionList $ \m -> (conn: m,())
+   liftIO $ atomicModifyIORef connectionList $ \m -> (conn: m,()) -- TODO 
 
-   input <-  liftIO $ SBSL.getContents sock
+   input <-  liftIO $ SBSL.getContents sock 
    --return () !> "SOME INPUT"
    -- cutExceptions
 
@@ -1703,7 +1705,6 @@ listenNew port conn'=  do
   --            liftIO $ putStr "listen: " >> print e
 
   --            let Connection{remoteNode=rnode,localClosures=localClosures,closChildren= rmap} = conn
-  --            -- TODO How to close Connection by discriminating exceptions
   --            mnode <- liftIO $ readIORef rnode
   --            case mnode of
   --              Nothing -> return ()
@@ -1745,6 +1746,8 @@ listenNew port conn'=  do
            if BS.toStrict myCookie /=  hisCookie
             then do
               sendRaw conn "NOK"
+
+              mclose conn
               error "connection attempt with bad cookie"
             else do
                sendRaw conn "OK"                               --    !> "CLOS detected"
@@ -1755,8 +1758,12 @@ listenNew port conn'=  do
      _ -> do
            let uri'= BC.tail $ uriPath uri !> uriPath uri
            return () !>  ("uri'", uri')
-           if  "api" `BC.isPrefixOf` uri'
-             then do
+
+           case BC.span (/= '/') uri' of 
+
+            ("api",_) -> do
+           -- if  "api" `BC.isPrefixOf` uri'
+             --then do
 
                --log <- return $ Exec:Exec: (Var $ IDyns $ BS.unpack method):(map (Var . IDyns ) $ split $ BC.unpack $ BC.drop 4 uri')
 
@@ -1801,8 +1808,79 @@ listenNew port conn'=  do
                    setParseString $ toLazyByteString log'
                    return $ SMore $ ClosureData 0 0  log' !> ("APIIIII", log')
 
-             else if "relay"  `BC.isPrefixOf` uri' then proxy sock method vers uri'
-             else if True then do
+             --else if "relay"  `BC.isPrefixOf` uri' then proxy sock method vers uri'
+            ("relay",_) ->  proxy sock method vers uri'
+
+            (h,rest) -> do
+              if   BC.null rest  ||  h== "file" then do
+                --headers <- getHeaders
+                maybeSetHost headers
+                let uri= if BC.null h || BC.null rest then  uri' else  BC.tail rest
+                return () !> (method,uri)
+                -- stay serving pages until a websocket request is received
+                servePages (method, uri, headers)
+
+                -- when servePages finish, is because a websocket request has arrived
+                conn <- getSData
+                sconn <- makeWebsocketConnection conn uri headers
+
+                -- websockets mode
+                rem <- liftIO $ newIORef Nothing
+                chs <- liftIO $ newIORef M.empty
+                cls <- liftIO $ newMVar M.empty
+                cme <- liftIO $ newIORef M.empty
+                cdata <- liftIO $ newIORef $ Just (Node2Web sconn)
+                let conn'= conn{connData= cdata
+                          , closChildren=chs,localClosures=cls, remoteNode=rem} --,comEvent=cme}
+                setState conn'    !> "WEBSOCKETS CONNECTION"
+
+                co <- liftIO $ readIORef rcookie
+
+                let receivedCookie= lookup "cookie" headers
+
+
+                return () !> ("cookie", receivedCookie)
+                rcookie <- case receivedCookie of
+                  Just str-> Just <$> do
+                              withParseString (BS.fromStrict str) $ do
+                                  tDropUntilToken "cookie="
+                                  tTakeWhile (not . isSpace)
+                  Nothing -> return Nothing
+                return () !> ("RCOOKIE", rcookie)
+                if rcookie /= Nothing && rcookie /= Just  co
+                  then do
+                    node  <- getMyNode
+                    --let msg= SError $ toException $ ErrorCall $  show $ show $ CloudException node 0 $ show $ ConnectionError "bad cookie" node
+                    return () !> "SENDINg"
+
+                    -- liftIO $ WS.sendClose  sconn $  ("ERROR" :: BS.ByteString)
+
+                    liftIO $ WS.sendClose sconn ("Bad Cookie" :: BS.ByteString)  !> "SendClose Bad cookie"
+                    empty
+
+                  else do
+
+                    liftIO $ WS.sendTextData sconn ("OK" :: BS.ByteString)
+
+
+
+                    -- a void message is sent to the application signaling the beginning of a connection
+                    -- async (return (SMore $ ClosureData 0 0[Exec])) <|> do
+
+                    do
+                      return ()                  !> "WEBSOCKET"
+                      --  onException $ \(e :: SomeException) -> do
+                      --     liftIO $ putStr "listen websocket:" >> print e
+                      --     -- liftIO $ mclose conn'
+                      --     -- killBranch
+                      --     -- empty
+
+
+                      s <- waitEvents $ WS.receiveData sconn :: TransIO BS.ByteString
+                      setParseString s
+                      integer
+                      deserialize <|> (return $ SMore (ClosureData 0 0  (exec <> lazyByteString s)))
+              else  do
 
                 setParseString $ BS.fromStrict $ uri'
                 remoteClosure <- deserialize    :: TransIO Int
@@ -1813,74 +1891,7 @@ listenNew port conn'=  do
                 setState conn{connData=cdata}
 
                 return $  SMore $ ClosureData remoteClosure thisClosure  $ byteString $  uri' !> ("APIIIII",  uri')
-             else do
-               --headers <- getHeaders
-               maybeSetHost headers
-
-               return () !> (method,uri')
-               -- stay serving pages until a websocket request is received
-               servePages (method, uri', headers)
-
-
-               conn <- getSData
-               sconn <- makeWebsocketConnection conn uri headers
-
-               -- websockets mode
-               rem <- liftIO $ newIORef Nothing
-               chs <- liftIO $ newIORef M.empty
-               cls <- liftIO $ newMVar M.empty
-               cme <- liftIO $ newIORef M.empty
-               cdata <- liftIO $ newIORef $ Just (Node2Web sconn)
-               let conn'= conn{connData= cdata
-                         , closChildren=chs,localClosures=cls, remoteNode=rem} --,comEvent=cme}
-               setState conn'    !> "WEBSOCKETS CONNECTION"
-
-               co <- liftIO $ readIORef rcookie
-
-               let receivedCookie= lookup "cookie" headers
-
-
-               return () !> ("cookie", receivedCookie)
-               rcookie <- case receivedCookie of
-                 Just str-> Just <$> do
-                             withParseString (BS.fromStrict str) $ do
-                                 tDropUntilToken "cookie="
-                                 tTakeWhile (not . isSpace)
-                 Nothing -> return Nothing
-               return () !> ("RCOOKIE", rcookie)
-               if rcookie /= Nothing && rcookie /= Just  co
-                 then do
-                   node  <- getMyNode
-                   --let msg= SError $ toException $ ErrorCall $  show $ show $ CloudException node 0 $ show $ ConnectionError "bad cookie" node
-                   return () !> "SENDINg"
-
-                   -- liftIO $ WS.sendClose  sconn $  ("ERROR" :: BS.ByteString)
-
-                   liftIO $ WS.sendClose sconn ("Bad Cookie" :: BS.ByteString)  !> "SendClose Bad cookie"
-                   empty
-
-                 else do
-
-                   liftIO $ WS.sendTextData sconn ("OK" :: BS.ByteString)
-
-
-
-                   -- a void message is sent to the application signaling the beginning of a connection
-                   -- async (return (SMore $ ClosureData 0 0[Exec])) <|> do
-
-                   do
-                     return ()                  !> "WEBSOCKET"
-                    --  onException $ \(e :: SomeException) -> do
-                    --     liftIO $ putStr "listen websocket:" >> print e
-                    --     -- liftIO $ mclose conn'
-                    --     -- killBranch
-                    --     -- empty
-
-
-                     s <- waitEvents $ WS.receiveData sconn :: TransIO BS.ByteString
-                     setParseString s
-                     integer
-                     deserialize <|> (return $ SMore (ClosureData 0 0  (exec <> lazyByteString s)))
+     
 {-
                      r <-  parallel $ do
                              msg <- WS.receiveData sconn
@@ -2286,9 +2297,10 @@ readFrom con= do
 -- toStrict= B.concat . BS.toChunks
 
 makeWSStreamFromConn conn= do
+     return () !> "WEBSOCKETS request"
      let rec= readFrom conn
          send= sendRaw conn
-     makeStream                  -- !!> "WEBSOCKETS request"
+     makeStream                  
             (do
                 bs <-  rec         -- SBS.recv sock 4098
                 return $ if BC.null bs then Nothing else Just  bs)
@@ -2885,7 +2897,7 @@ connectionTimeouts=  do
                          --             writeIORef (connData con) Nothing
                          --             return False
                      in   isNothing mc || -- check that is not doing some IO
-                        (((time - fromJust mc) < delta) {-|| nulify -})) cons !> Data.List.length cons
+                        (((time - fromJust mc !> (time,mc)) < delta) {-|| nulify -})) cons !> Data.List.length cons
                   -- time etc are in a IORef
     mapM_ (\c -> liftIO $ do
 
