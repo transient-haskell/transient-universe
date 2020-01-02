@@ -45,7 +45,7 @@ library
             filepath -any,
             hashable -any,
             iproute -any,
-            network -any,
+            network < 3,
             network-info -any,
             network-uri -any,
             vector -any,
