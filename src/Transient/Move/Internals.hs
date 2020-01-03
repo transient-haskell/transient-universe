@@ -1777,7 +1777,7 @@ listenNew port conn'=  do
                if  lookup "Transfer-Encoding" headers == Just "chunked" then error $ "chunked not supported" else do
 
                    len <- (read <$> BC.unpack
-                               <$> (Transient $ return (lookup "Content-Length" headers)))
+                                <$> (Transient $ return (lookup "Content-Length" headers)))
                                 <|> return 0
                    log' <- case lookup "Content-Type" headers of
 
@@ -1785,9 +1785,10 @@ listenNew port conn'=  do
 
                                 let toDecode= BS.take len str
                                 return () !> ("TO DECODE", toDecode)
-                                let json = case eitherDecode toDecode of
-                                        Right x  ->  (x :: Value)
-                                        Left err -> error $ "Data.Aeson: "++ err
+                                 --let json = case eitherDecode toDecode of
+                                --        Right x  ->  (x :: Value)
+                                --        Left err -> error $ "Data.Aeson: "++ err
+                                setParseString $ BS.take len str
                                 return $ log <> lazyByteString toDecode -- [(Var $ IDynamic json)]    -- TODO hande this serialization
 
                            Just "application/x-www-form-urlencoded" -> do
@@ -2716,7 +2717,7 @@ instance {-# Overlapping #-}  Loggable Value where
    serialize= return . lazyByteString =<< encode
    deserialize =  decodeIt
     where
-        jsElem :: TransIO BS.ByteString
+        jsElem :: TransIO BS.ByteString  -- just delimites the json string, do not parse it
         jsElem=   dropSpaces >> (jsonObject <|> array <|> atom)
         atom= elemString
         array=      (brackets $ return "[" <> return "{}" <> chainSepBy mappend (return "," <> jsElem)  (tChar ','))  <> return "]"
@@ -2726,7 +2727,7 @@ instance {-# Overlapping #-}  Loggable Value where
 
 
         decodeIt= do
-            s <- jsElem
+            s <- jsElem  
             return () !> ("decode",s)
 
             case eitherDecode s !> "DECODE" of
