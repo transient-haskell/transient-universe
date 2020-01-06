@@ -7,6 +7,8 @@
 [![Build Status](https://travis-ci.org/transient-haskell/transient-universe.png?branch=master)](https://travis-ci.org/transient-haskell/transient-universe)
 [![Gitter](https://badges.gitter.im/theam/haskell-do.svg)](https://gitter.im/Transient-Transient-Universe-HPlay/Lobby?utm_source=share-link&utm_medium=link&utm_campaign=share-link)
 
+ [![Simple Haskell](http://simplehaskell.org/badges/badge.svg)](http://simplehaskell.org)
+ 
 See the [Wiki](https://github.com/agocorona/transient/wiki)
 
 transient-universe is the distributed computing extension of [transient](https://github.com/agocorona/transient) and uses transient primitives heavily for parsing, threading, event handling, exception handling, messaging etc.  It support moving computations between Haskell closures in different computers in the network. Even among different architectures:  Linux nodes can work with windows and browser nodes running haskell compiled with [ghcjs](https://github.com/ghcjs/ghcjs).
