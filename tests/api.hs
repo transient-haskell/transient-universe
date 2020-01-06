@@ -76,7 +76,7 @@ apisample= api $ do
             
     badRequest =  return $ BS.pack $
                        let resp="Bad Request\n\
-                         \Usage: GET:  host/port/api/hello/<name>, host/port/api/hellos/<name>\n\
+                         \Usage: GET:  http//host:port/api/hello/<name>, http://host:port/api/hellos/<name>\n\
                          \       POST: host/port/api\n"
                        in "HTTP/1.0 400 Bad Request\nContent-Length: " ++ show(length resp)
                          ++"\nConnection: close\n\n"++ resp

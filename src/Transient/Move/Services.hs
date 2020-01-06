@@ -302,7 +302,7 @@ runEmbeddedService servname serv =  do
    listen node
    wormhole' (notused 4) $ loggedc $ do
       x <- local $ return (notused 0)
-      r <- onAll $ runCloud (serv x) <** modify (\s -> s{remoteStatus= WasRemote}) --setData WasRemote
+      r <- onAll $ runCloud (serv x) <** modify (\s -> s{execMode= Remote}) --setData Remote
       local $ return r
       teleport
       return r
@@ -609,7 +609,7 @@ serve :: (Loggable a, Loggable b) => (a -> Cloud b) -> Cloud ()
 serve  serv= do 
         return () !> "SERVE"
 
-        modify $ \s -> s{remoteStatus= NoRemote}
+        modify $ \s -> s{execMode= Serial}
         p <-  onAll deserialize --  empty if the parameter does not match
         modifyData' (\log -> log{recover=False}) $ error "serve: error"
         loggedc $ serv p

@@ -44,7 +44,7 @@ test9= do
      runAt (nodes !! 1) doit 
 test8 =  do
     --local $ option "r" "r"
-    delData NoRemote
+    delData Serial
     n <- local getMyNode
     r <- (runAt n (local getMailbox) <> runAt n (local getMailbox) <> runAt n (local getMailbox)) <|> (local $ putMailbox "hello " >> empty) 
     -- r <- (return [3] <> (async (do print "here";return [5]:: IO [Int]) >> empty)) <|> liftIO (do print "here2"; return [7])
@@ -63,14 +63,14 @@ test7= do
     localIO $ print ins
 
 test6= do
-    -- setData WasParallel
+    -- setData Parallel
     ((async getLine  >> return ())<> (liftIO $ print "world")) -- <|> liftIO (print "hello") 
 
 test5= do
    -- option "r" "run"
    v1 <- liftIO $ newEmptyMVar
 
-   setData WasParallel
+   setData Parallel
    (proc v1 <> proc2 ) <|> 
             (do  liftIO $ threadDelay 1000000 ; async $ putMVar v1 ("hello" :: String) )
    -- liftIO $ print (r :: String) 
@@ -85,13 +85,13 @@ test5= do
 test3= do
     v <- newEVar
     -- option "r" "run"
-    setData WasParallel
+    setData Parallel
     r <- (readEVar v <> readEVar v) <|> (do liftIO $ threadDelay 1000000; writeEVar v "hello" >> empty)
     liftIO $ print (r :: String)
 
 test2=  do
   option "r" "run"
-  setData WasParallel
+  setData Parallel
   r <- (async (return "1") ) <> (async (return "2")) <|> (do liftIO $ threadDelay 10000000;async (print "3") >> empty)
 
   --r <- (getMailbox <> getMailbox) <|> (do liftIO $ threadDelay 10000000; putMailbox (1 :: Int) >> empty)

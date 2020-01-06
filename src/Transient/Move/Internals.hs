@@ -356,16 +356,16 @@ atRemote proc= loggedc' $ do
 
      teleport                                             --  !> "teleport 1111"
 
-     modify $ \s -> s{remoteStatus= if remoteStatus s== WasParallel then WasParallel else NoRemote}   -- modifyData' f1 NoRemote
+     modify $ \s -> s{execMode= if execMode s== Parallel then Parallel else Serial}   -- modifyData' f1 Serial
 
-     r <-  loggedc $ proc  <** modify (\s -> s{remoteStatus= WasRemote}) -- setData WasRemote
+     r <-  loggedc $ proc  <** modify (\s -> s{execMode= Remote}) -- setData Remote
 
      teleport                                              -- !> "teleport 2222"
 
      return r
      --where
-     --  f1 WasParallel= WasParallel
-     --  f1 _= NoRemote
+     --  f1 Parallel= Parallel
+     --  f1 _= Serial
 
 -- | Execute a computation in the node that initiated the connection.
 --
@@ -539,7 +539,7 @@ teleport  =  local $ Transient $ do
         ty <- liftIO $ readIORef contype
         case ty of
          Just Self -> runTrans $ do
-               modify $ \s -> s{remoteStatus= WasParallel}  -- setData  WasParallel
+               modify $ \s -> s{execMode= Parallel}  -- setData  Parallel
                abduce  -- !> "SELF" -- call himself
                liftIO $ do
                   remote <- readIORef $ remoteNode conn
@@ -1603,10 +1603,10 @@ defConnection =  do
     my <- newIORef (error "node in default connection")
     x <- newMVar Nothing
     y <- newMVar M.empty
-    noremote <- newIORef Nothing
+    ref <- newIORef Nothing
     z <-   newIORef M.empty
     noconn <- newIORef Nothing
-    return $ Connection idc my noremote noconn  8192
+    return $ Connection idc my ref noconn  8192
                   (error "defConnection: accessing network events out of listen")
                   x  False False y z
 
@@ -2719,10 +2719,12 @@ instance {-# Overlapping #-}  Loggable Value where
     where
         jsElem :: TransIO BS.ByteString  -- just delimites the json string, do not parse it
         jsElem=   dropSpaces >> (jsonObject <|> array <|> atom)
-        atom= elemString
+        atom=     elemString
         array=      (brackets $ return "[" <> return "{}" <> chainSepBy mappend (return "," <> jsElem)  (tChar ','))  <> return "]"
         jsonObject= (braces $ return "{" <> chainMany mappend jsElem) <> return "}"
-        elemString= (dropSpaces >> tTakeWhile (\c -> c /= '}' && c /= ']' ))
+        elemString= do 
+            dropSpaces 
+            tTakeWhile (\c -> c /= '}' && c /= ']' )
 
 
 
