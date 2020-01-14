@@ -1,6 +1,6 @@
 #!/usr/bin/env execthirdlinedocker.sh
 --  info: use sed -i 's/\r//g' file if report "/usr/bin/env: ‘execthirdlinedocker.sh\r’: No such file or directory"
--- LIB="/projects" && runghc   -DDEBUG  -i${LIB}/transient/src -i${LIB}/transient-universe/src -i${LIB}/axiom/src   $1 ${2} ${3}
+-- LIB="/home/vsonline/workspace" && runghc     -i${LIB}/transient/src -i${LIB}/transient-universe/src -i${LIB}/axiom/src   $1 ${2} ${3}
 
 -- mkdir -p ./static && ghcjs --make   -i../transient/src -i../transient-universe/src  -i../axiom/src   $1 -o static/out && runghc   -i../transient/src -i../transient-universe/src -i../axiom/src   $1 ${2} ${3}
 
@@ -11,7 +11,7 @@
 module Main where
 
 import Transient.Base
-import Transient.Move
+import Transient.Move.Internals
 import Transient.Internals
 import Transient.Move.Utils
 import Control.Applicative
@@ -32,16 +32,46 @@ import Transient.Move.Services
 import Transient.Indeterminism
 
 -- to be executed with two or more nodes
-main = keep $ initNode $ inputNodes <|> test9
+main = keep $ initNode $  test11
+test11= localIO $ print "hello world"
+test10= do
+    -- showPath
+    local $ return (42 :: Int)
+    teleport
 
 test9= do
    local $ option "r" "run"
-   atOtherNode $ localIO $ print "hello"
+   atOtherNode $ do 
+       showPath
+       localIO $ print "hello"
+       i <- local $ threads 0 $ choose[1:: Int ..]
+       localIO $ threadDelay 1000000
+       return i
    where
    atOtherNode doit= do
-     nodes <- local getNodes
-     guard $ length nodes > 1
-     runAt (nodes !! 1) doit 
+     node <- local $ do
+           nodes <-  getNodes
+           guard $ length nodes > 1
+           return $ nodes !! 1
+     runAt node  doit
+
+showPath= onAll$ do 
+       Closure closRemote  <- getSData <|>  return (Closure 0 )--get myclosure
+       --get remoteclosure
+       log <- getLog --get path 
+       n <- getMyNode
+       liftIO $ do
+           putStr  "'http://"
+           putStr $ nodeHost n
+           putStr ":"
+           putStr $show $ nodePort n
+           putStr "/"
+           putStr $ show 0
+           putStr "/"
+           putStr $ show  closRemote
+           putStr "/"
+           putStr $ show $ fulLog log
+           putStrLn "'"
 test8 =  do
     --local $ option "r" "r"
     delData Serial

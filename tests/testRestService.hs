@@ -1,6 +1,6 @@
 #!/usr/bin/env execthirdlinedocker.sh
 --  info: use sed -i 's/\r//g' file if report "/usr/bin/env: ‘execthirdlinedocker.sh\r’: No such file or directory"
---  runghc -DDEBUG    -i../transient/src -i../transient-universe/src -i../axiom/src    tests/testRestService.hs -p start/localhost/8000
+--  runghc     -i../transient/src -i../transient-universe/src -i../axiom/src    tests/testRestService.hs -p start/localhost/8000
 
 
 {-# LANGUAGE ScopedTypeVariables, OverloadedStrings   #-}
@@ -60,9 +60,9 @@ main= keep $ initNode $ do
 
       r <-callService postRestService (10 :: Int,4 :: Int, "true" :: Symbol ,  "title alberto" :: Literal)  :: Cloud Value
       local $ do
-          HTTPHeaders _ headers <- getState <|> error "no heraders. That should not happen" 
+          HTTPHeaders _ headers <- getState <|> error "no headers. That should not happen" 
           liftIO $ print headers 
-          liftIO $ print r
+          liftIO $ print ("POST RESPONSE:",r)
  
           
       r <- callService getRestService (10::Int)
@@ -72,6 +72,6 @@ main= keep $ initNode $ do
               putStrLn "HEADERS"
               print headers
               putStrLn "RESULT"
-              print  (r :: Value)
+              print  ("GET RESPONSE:",r :: Value)
       
       

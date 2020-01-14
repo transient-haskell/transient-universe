@@ -102,6 +102,11 @@ instance Loggable ()
 instance Loggable Node
 instance Loggable Bool
 instance Loggable Int
+
+instance Loggable a => Loggable[a]  
+--    serialize x= if typeOf x= typeOf (undefined :: String) then BS.pack x else BS.pack $ show x
+--    deserialize= let [(s,r)]= 
+
 instance Loggable Char
 instance Loggable Float
 instance Loggable Double
@@ -117,8 +122,6 @@ instance (Loggable a,Loggable b, Loggable c,Loggable d) => Loggable (a,b,c,d)
 -- int64Dec i=  Builder $ \s -> pack (show i) <> s
 
 -- #endif
-
-instance Loggable a => Loggable[a]
 instance (Loggable k, Ord k, Loggable a) => Loggable (M.Map k a)  where
   serialize v= intDec (M.size v) <> M.foldlWithKey' (\s k x ->  s <> "/" <> serialize k <> "/" <> serialize x ) mempty v
   deserialize= do
@@ -518,6 +521,7 @@ syncStream proc=  do
       return synchronous
     Cloud $ threads 0 $ runCloud' proc <***  modifyData'(\con -> con{synchronous=sync})  err
     where err= error "syncStream: no communication data"
+
 
 
 teleport :: Cloud ()
@@ -933,16 +937,15 @@ msend con r= do
               SBSL.sendAll sock bs
      Just (HTTP2Node _ sock _)  -> do
               let bs = toLazyByteString $ serialize r
-              let len=  BS.length bs
-                  lenstr= toLazyByteString $ int64Dec $ len
+              -- let len=  BS.length bs
+              --     lenstr= toLazyByteString $ int64Dec $ len
 
-              SBSL.send sock $ "HTTP/1.0 200 OK\r\nContent-Type: text/html\r\nContent-Length: "
-                    <> lenstr
+              -- SBSL.send sock $ "HTTP/1.0 200 OK\r\nContent-Type: text/html" -- \r\nContent-Length: " <> lenstr
                    -- <>"\r\n" <> "Set-Cookie:" <> "cookie=" <> cook -- <> "\r\n"
-                    <>"\r\n\r\n"
+              --      <>"\r\n\r\n"
 
-              SBSL.sendAll sock bs
-
+              SBSL.sendAll sock $ bs <> "\r\n" 
+              
      Just (Node2Web sconn) -> do
          -- {-withMVar blocked $ const $ -} WS.sendTextData sconn $ serialize r -- BS.pack (show r)    !> "websockets send"
            liftIO $   do
@@ -1722,7 +1725,7 @@ listenNew port conn'=  do
    ex <- exceptionPoint :: TransIO (BackPoint SomeException)
    setData ex
    onException $ \(e :: SomeException) -> do liftIO $ print e; empty
-   modify $ \s -> s{parseContext= (ParseContext (NS.close sock >> error "timeout" ) input
+   modify $ \s -> s{parseContext= (ParseContext (NS.close sock >> error "connection closed" ) input
              ::ParseContext )}
    cdata <- liftIO $ newIORef $ Just (Node2Node (PortNumber port) sock addr)
    setState conn{connData=cdata}
@@ -1731,7 +1734,12 @@ listenNew port conn'=  do
 
 
    -- (method,uri, headers) <- receiveHTTPHead
+
    firstLine@(method, uri, vers) <- getFirstLine
+
+
+   return () !> "after getfirstLine"
+
    headers <- getHeaders
    setState $ HTTPHeaders firstLine headers
 
@@ -1784,19 +1792,17 @@ listenNew port conn'=  do
                            Just "application/json" -> do
 
                                 let toDecode= BS.take len str
-                                return () !> ("TO DECODE", toDecode)
-                                 --let json = case eitherDecode toDecode of
-                                --        Right x  ->  (x :: Value)
-                                --        Left err -> error $ "Data.Aeson: "++ err
+                                liftIO $ print ("TO DECODE", log <> lazyByteString toDecode)
+
                                 setParseString $ BS.take len str
-                                return $ log <> lazyByteString toDecode -- [(Var $ IDynamic json)]    -- TODO hande this serialization
+                                return $ log <> "/" <> lazyByteString toDecode -- [(Var $ IDynamic json)]    -- TODO hande this serialization
 
                            Just "application/x-www-form-urlencoded" -> do
 
                                 return () !> ("POST HEADERS=", BS.take len str)
 
                                 setParseString $ BS.take len str
-                                postParams <- parsePostUrlEncoded  <|> return []
+                                --postParams <- parsePostUrlEncoded  <|> return []
                                 return $ log <>  lazyByteString ( BS.take len str) -- [(Var . IDynamic $ postParams)]  TODO: solve deserialization
 
                            Just x -> do
@@ -1881,17 +1887,18 @@ listenNew port conn'=  do
                       setParseString s
                       integer
                       deserialize <|> (return $ SMore (ClosureData 0 0  (exec <> lazyByteString s)))
-              else  do
-
-                setParseString $ BS.fromStrict $ uri'
+              else  do  
+                let uriparsed=  BS.pack $ unEscapeString $ BC.unpack uri'
+                setParseString uriparsed 
                 remoteClosure <- deserialize    :: TransIO Int
                 tChar '/'
                 thisClosure <- deserialize   :: TransIO Int
                 tChar '/'
                 cdata <- liftIO $ newIORef $ Just (HTTP2Node (PortNumber port) sock addr)
                 setState conn{connData=cdata}
-
-                return $  SMore $ ClosureData remoteClosure thisClosure  $ byteString $  uri' !> ("APIIIII",  uri')
+                s <- giveParseString
+                return $ SMore $ ClosureData remoteClosure thisClosure  $ byteString  $ BS.toStrict s-- uriparsed
+                
      
 {-
                      r <-  parallel $ do
@@ -2405,9 +2412,10 @@ instance Loggable HTTPMethod
 
 getFirstLine=  (,,) <$> getMethod <*> (BS.toStrict <$> getUri) <*> getVers
     where
-    getMethod= parseString
-    getUri= parseString
-    getVers= parseString
+    getMethod= parseString 
+
+    getUri= parseString  
+    getVers= parseString 
 
 getRawHeaders=  dropSpaces >> (withGetParseString $ \s -> return $ scan mempty s)
 
@@ -2744,7 +2752,8 @@ data HTTPHeaders= HTTPHeaders  (BS.ByteString, B.ByteString, BS.ByteString) [(CI
 
 rawREST :: Loggable a => Node -> String -> TransIO  a
 rawREST node restmsg = do
-  abduce
+  abduce   -- is a parallel operation
+  return () !> ("rawREST",node,restmsg)
   sock <- liftIO $ connectTo' 8192 (nodeHost node) (PortNumber $ fromIntegral $ nodePort node)
   liftIO $ SBS.sendMany sock $ BL.toChunks $ BS.pack $ restmsg
   return () !> "after send"
@@ -2758,8 +2767,6 @@ rawREST node restmsg = do
   return () !> ("HEADERSSSSSSS", headers)
   case lookup "Transfer-Encoding" headers of
     Just "chunked" ->
-
-
          -- return a stream of JSON elements
          dechunk |-  deserialize
 
@@ -2888,7 +2895,6 @@ atServer x= do
 delta= 60 -- 3*60
 connectionTimeouts  :: TransIO ()
 connectionTimeouts=  do
-    --option ("check" ::String) "check"
     threads 0 $ choose[0..]    --loop
     liftIO $ threadDelay 10000000
     return () !> "timeouts"
@@ -2896,21 +2902,18 @@ connectionTimeouts=  do
     toClose <- liftIO $  atomicModifyIORef connectionList $ \ cons ->
                   Data.List.partition (\con ->
                      let mc= unsafePerformIO $ readMVar $ isBlocked con
-                         --nulify= unsafePerformIO $ do
-                         --             writeIORef (connData con) Nothing
-                         --             return False
+
                      in   isNothing mc || -- check that is not doing some IO
-                        (((time - fromJust mc !> (time,mc)) < delta) {-|| nulify -})) cons !> Data.List.length cons
+                        (((time - fromJust mc !> (time,mc)) < delta) )) cons !> Data.List.length cons
                   -- time etc are in a IORef
     mapM_ (\c -> liftIO $ do
 
                     putStr "close "
                     print $ idConn c
                     mclose c;
-                    writeIORef (connData c) Nothing
+                    writeIORef (connData c) Nothing       -- close should put Nothing in connection
                     modifyIORef globalFix $ \m -> M.insert (idConn c) (False,[]) m -- reset the remote accessible closures
                     -- the above better here than in msend
                     modifyMVar_ (localClosures c) $ const $ return M.empty
                     modifyIORef globalFix $ \m -> M.insert (idConn c) (True,[]) m
                      )  toClose
-              -- close should put Nothing in connection

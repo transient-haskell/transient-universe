@@ -1,6 +1,6 @@
 #!/usr/bin/env execthirdlinedocker.sh
 
---  runghc  -DDEBUG   -i../transient/src -i../transient-universe/src -i../axiom/src    $1  ${2} ${3} 
+--  runghc    -i../transient/src -i../transient-universe/src  $1  ${2} ${3} 
 
 
 {- execute as ./tests/api.hs  -p start/<docker ip>/<port>
@@ -22,23 +22,27 @@ import qualified Data.ByteString.Lazy.Char8 as BS
 import qualified Data.ByteString as BSS
 import Data.Aeson
 
-main = keep $  initNode   apisample
+main = keep $ initNode   apisample
 
 apisample= api $ do
 
     gets <|> posts <|> badRequest
     where
     posts= postParams <|> postJSON
-    postJSON= do
-       received POST
+    postJSON= try $ do
+       received POST    -- both postParams and PostJSON check for POST, so both need `try`, to backtrack
+                        -- not necessary if POST is checked once.
+       liftIO $ print "AFTER POST"
+
        received "json"
+       liftIO $ print "AFTER JSON"
        json <- param
-       liftIO $ print (json :: Value)
+       liftIO $ print ("JSON received:",json :: Value)
        let msg= "received\n"
        return $ BS.pack $ "HTTP/1.0 200 OK\nContent-Type: text/plain\nContent-Length: "++ show (length msg)
                  ++ "\nConnection: close\n\n" ++ msg
 
-    postParams= do
+    postParams= try $ do
        received POST
        received "params"
        postParams <- param
@@ -48,7 +52,7 @@ apisample= api $ do
                  ++ "\nConnection: close\n\n" ++ msg
 
     gets= do
-        received GET 
+        received GET        -- "GET" is checked once, so no try necessary.
         hello <|> hellostream
     hello= do
         received "hello"
@@ -77,7 +81,7 @@ apisample= api $ do
     badRequest =  return $ BS.pack $
                        let resp="Bad Request\n\
                          \Usage: GET:  http//host:port/api/hello/<name>, http://host:port/api/hellos/<name>\n\
-                         \       POST: host/port/api\n"
+                         \       POST: http://host:port/api\n"
                        in "HTTP/1.0 400 Bad Request\nContent-Length: " ++ show(length resp)
                          ++"\nConnection: close\n\n"++ resp
                        
