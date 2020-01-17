@@ -13,7 +13,7 @@
 -----------------------------------------------------------------------------
 {-# LANGUAGE CPP, ScopedTypeVariables #-}
 module Transient.Move.Utils (initNode,initNodeDef, initNodeServ, inputNodes, simpleWebApp, initWebApp
-, onServer, onBrowser, atServer, atBrowser, runTestNodes)
+, onServer, onBrowser, atServer, atBrowser, runTestNodes, showURL)
  where
 
 --import Transient.Base
@@ -136,10 +136,12 @@ inputNodes= onServer $ do
                           if r ==  "" then stop else return r
 
           port      <- local $ input (const True) "port? "
-          serv <- local $ nodeServices <$> getMyNode 
+          serv      <- local $ nodeServices <$> getMyNode 
           services  <- local $ input' (Just serv) (const True) ("services? ("++ show serv ++ ") ")
 
           connectit <- local $ input (\x -> x=="y" || x== "n") "connect to the node to interchange node lists? (n) "
+            
+
           nnode <- localIO $ createNodeServ host port  services
           if connectit== "y" then connect'  nnode
                              else  local $ do
@@ -155,7 +157,24 @@ inputNodes= onServer $ do
              liftIO $ mapM  (\(i,n) -> do putStr (show i); putChar('\t'); print n) $ zip [0..] nodes
           empty
      
-    
+-- | show the URL that may be called to access that functionality within a program 
+showURL= onAll$ do 
+       Closure closRemote  <- getSData <|>  return (Closure 0 )--get myclosure
+       --get remoteclosure
+       log <- getLog --get path 
+       n <- getMyNode
+       liftIO $ do
+           putStr  "'http://"
+           putStr $ nodeHost n
+           putStr ":"
+           putStr $show $ nodePort n
+           putStr "/"
+           putStr $ show 0
+           putStr "/"
+           putStr $ show  closRemote
+           putStr "/"
+           putStr $ show $ fulLog log
+           putStrLn "'"
 
        
 -- | executes the application in the server and the Web browser.

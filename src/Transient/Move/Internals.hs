@@ -1892,7 +1892,7 @@ listenNew port conn'=  do
                 setParseString uriparsed 
                 remoteClosure <- deserialize    :: TransIO Int
                 tChar '/'
-                thisClosure <- deserialize   :: TransIO Int
+                thisClosure <- deserialize      :: TransIO Int
                 tChar '/'
                 cdata <- liftIO $ newIORef $ Just (HTTP2Node (PortNumber port) sock addr)
                 setState conn{connData=cdata}
@@ -2756,9 +2756,9 @@ rawREST node restmsg = do
   return () !> ("rawREST",node,restmsg)
   sock <- liftIO $ connectTo' 8192 (nodeHost node) (PortNumber $ fromIntegral $ nodePort node)
   liftIO $ SBS.sendMany sock $ BL.toChunks $ BS.pack $ restmsg
-  return () !> "after send"
+  --return () !> "after send"
   str  <- liftIO $ SBSL.getContents sock
-  return() !> ("RECEIVED", BS.take 50 str)
+  --return() !> ("RECEIVED", BS.take 50 str)
   setParseString str
   first <- getFirstLine
 

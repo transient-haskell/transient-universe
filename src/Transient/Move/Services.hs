@@ -404,7 +404,7 @@ callService' node params =  loggedc $ do
              teleport
     
              r <- local empty -- read the response
-             onAll $ symbol $ BS.pack "Exec/" 
+             onAll $ symbol $ BS.pack "e/" 
              return r
           delData  (undefined :: LocalFixData)
           return r
@@ -508,7 +508,7 @@ runService' servDesc defPort servAll proc=  do
        serverNode <- initNodeServ servDesc 
        wormhole' serverNode $ inputNodes <|> proc >> empty >> return()
        return () !> "ENTER SERVALL"
-       onAll $ symbol $ BS.pack "Exec/"
+       onAll $ symbol $ BS.pack "e/"
        servAll'   
        teleport  
 
