@@ -1704,7 +1704,7 @@ listenNew port conn'=  do
    id1 <- genGlobalId
    let conn= conn'{idConn=id1,closChildren=chs, remoteNode= noNode}
 
-   liftIO $ atomicModifyIORef connectionList $ \m -> (conn: m,()) -- TODO 
+   --liftIO $ atomicModifyIORef connectionList $ \m -> (conn: m,()) -- TODO 
 
    input <-  liftIO $ SBSL.getContents sock 
    --return () !> "SOME INPUT"
@@ -1735,7 +1735,10 @@ listenNew port conn'=  do
    modify $ \s -> s{parseContext= (ParseContext (NS.close sock >> error "connection closed" ) input
              ::ParseContext )}
    cdata <- liftIO $ newIORef $ Just (Node2Node (PortNumber port) sock addr)
-   setState conn{connData=cdata}
+   let conn'= conn{connData=cdata}
+   setState conn'
+   liftIO $ atomicModifyIORef connectionList $ \m -> (conn': m,()) -- TODO 
+
    maybeTLSServerHandshake sock input
 
 
@@ -1765,6 +1768,7 @@ listenNew port conn'=  do
               mclose conn
               error "connection attempt with bad cookie"
             else do
+              
                sendRaw conn "OK"                               --    !> "CLOS detected"
                --async (return (SMore $ ClosureData 0 0[Exec])) <|> mread conn
 
@@ -1906,7 +1910,7 @@ listenNew port conn'=  do
                 s <- giveParseString
                 cook <- liftIO $ readIORef rcookie
 
-                liftIO $ SBSL.sendAll sock $  "HTTP/1.0 200 OK\r\nContent-Type: text/html\r\nSet-Cookie: cookie=" <> cook <> "\r\n\r\n"
+                liftIO $ SBSL.sendAll sock $  "HTTP/1.0 200 OK\r\nContent-Type: text/plain\r\n\r\n"
                 return $ SMore $ ClosureData remoteClosure thisClosure  $ lazyByteString  s
                 
      
@@ -2900,7 +2904,7 @@ atServer x= do
 -- delete connections.
 -- delete receiving closures before sending closures
 
-delta= 3*60
+delta= 60 -- 3*60
 connectionTimeouts  :: TransIO ()
 connectionTimeouts=  do
     threads 0 $ choose[0..]    --loop
