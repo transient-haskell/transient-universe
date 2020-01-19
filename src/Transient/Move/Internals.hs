@@ -100,7 +100,16 @@ import Unsafe.Coerce
 
 instance Loggable ()
 instance Loggable Node
-instance Loggable Bool
+instance Loggable Bool where 
+  serialize b= if b then "t" else "f"
+  deserialize = withGetParseString $ \s -> 
+     if (BS.head $ BS.tail s) /= '/'   
+        then empty 
+        else
+            let h= BS.head s
+                tail=  BS.tail s
+            in if h== 't' then return (True,tail)  else if h== 'f' then return (False, tail) else empty 
+
 instance Loggable Int
 
 instance Loggable a => Loggable[a]  
@@ -355,7 +364,7 @@ callTo' node remoteProc=  do
 -- >     bat t                      -- in the original node
 
 atRemote :: Loggable a => Cloud a -> Cloud a
-atRemote proc= loggedc' $ do
+atRemote proc=  loggedc' $ do
 
      teleport                                             --  !> "teleport 1111"
 
@@ -366,9 +375,7 @@ atRemote proc= loggedc' $ do
      teleport                                              -- !> "teleport 2222"
 
      return r
-     --where
-     --  f1 Parallel= Parallel
-     --  f1 _= Serial
+
 
 -- | Execute a computation in the node that initiated the connection.
 --
@@ -938,10 +945,10 @@ msend con r= do
      Just (HTTP2Node _ sock _)  -> do
               let bs = toLazyByteString $ serialize r
               -- let len=  BS.length bs
-              --     lenstr= toLazyByteString $ int64Dec $ len
+              --    lenstr= toLazyByteString $ int64Dec $ len
 
               -- SBSL.send sock $ "HTTP/1.0 200 OK\r\nContent-Type: text/html" -- \r\nContent-Length: " <> lenstr
-                   -- <>"\r\n" <> "Set-Cookie:" <> "cookie=" <> cook -- <> "\r\n"
+                    -- <>"\r\n" <> "Set-Cookie:" <> "cookie=" <> cook -- <> "\r\n"
               --      <>"\r\n\r\n"
 
               SBSL.sendAll sock $ bs <> "\r\n" 
@@ -1897,23 +1904,13 @@ listenNew port conn'=  do
                 cdata <- liftIO $ newIORef $ Just (HTTP2Node (PortNumber port) sock addr)
                 setState conn{connData=cdata}
                 s <- giveParseString
-                return $ SMore $ ClosureData remoteClosure thisClosure  $ byteString  $ BS.toStrict s-- uriparsed
+                cook <- liftIO $ readIORef rcookie
+
+                liftIO $ SBSL.sendAll sock $  "HTTP/1.0 200 OK\r\nContent-Type: text/html\r\nSet-Cookie: cookie=" <> cook <> "\r\n\r\n"
+                return $ SMore $ ClosureData remoteClosure thisClosure  $ lazyByteString  s
                 
      
-{-
-                     r <-  parallel $ do
-                             msg <- WS.receiveData sconn
-                             return ()   !> ("Server WebSocket msg read",msg)
-                                         !> "<-------<---------<--------------"
 
-                             case reads $ BS.unpack msg of
-                               [] -> do
-
-                                   let  log = Exec ++ msg
-                                   return $ SMore (ClosureData 0 0  log)
-                               ((x ,_):_) -> return (x :: StreamData NodeMSG)
-                     return r
--}
 
 
      where
@@ -2001,6 +1998,17 @@ rsetHost= unsafePerformIO $ newIORef True
 --deriving instance Read PortID
 --deriving instance Typeable PortID
 
+-- | filter out HTTP requests
+noHTTP= onAll $ do 
+    conn <- getState
+    cdata <- liftIO $ readIORef $ connData conn
+    case cdata of
+      Just (HTTP2Node _ sock _) -> do
+        liftIO $ SBSL.sendAll sock $  "HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 11\r\n\r\nForbidden\r\n"
+        liftIO $ NS.close sock
+        
+        empty 
+      _ -> return () 
 
 
 #endif
@@ -2370,7 +2378,7 @@ servePages (method,uri, headers)   = do
             <>"\r\n\r\n" <> content
 
           Nothing ->liftIO $ sendRaw conn $ BS.pack $
-              "HTTP/1.0 404 Not Found\nContent-Length: 13\nConnection: close\n\nNot Found 404"
+              "HTTP/1.0 404 Not Found\nContent-Length: 13\r\nConnection: close\r\n\r\nNot Found 404"
         empty
 
 
@@ -2892,7 +2900,7 @@ atServer x= do
 -- delete connections.
 -- delete receiving closures before sending closures
 
-delta= 60 -- 3*60
+delta= 3*60
 connectionTimeouts  :: TransIO ()
 connectionTimeouts=  do
     threads 0 $ choose[0..]    --loop

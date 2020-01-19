@@ -90,7 +90,7 @@ setBuffSize, getBuffSize,
 
 #ifndef ghcjs_HOST_OS
 -- * REST API
-api, HTTPMethod(..), PostParams,
+api, HTTPMethod(..), PostParams, noHTTP
 #endif
 ) where
 

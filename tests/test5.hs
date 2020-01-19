@@ -39,14 +39,21 @@ main3 = keep $ initNode $ hi "hello" <|> hi "world"
      localIO $ putStrLn text
      teleport  <** modify (\s -> s{execMode=Remote})
      
--- to be executed with two or more nodes
-main = keep $ initNode $ inputNodes <|> do
-         hi "hello" <|> hi  "world"
+main = keep $ initNode $ inputNodes <|> hi
   where
-  hi text= atRemote $ do
-     showURL
-     localIO $ putStrLn text
+  hi = do
+        showURL
+        localIO $ putStrLn "hello"
+        let x= "hello "
+        teleport
+        showURL 
+        localIO $ print $ x ++ "world"
+        teleport
+        
+
+
       
+
 
 
   
@@ -56,15 +63,15 @@ test10= do
     local $ return (42 :: Int)
     teleport
 
-main2 = keep $ initNode $ inputNodes <|> test9
-test9= do
-   local $ option "r" "run"
-   atOtherNode $ do 
+main2 = keep $ initNode $ inputNodes <|>  do
+    local $ option "r" "run"
+    i <- atOtherNode $ do 
        showURL
        localIO $ print "hello"
        i <- local $ threads 0 $ choose[1:: Int ..]
        localIO $ threadDelay 1000000
        return i
+    localIO $ print i
    where
    atOtherNode doit= do
      node <- local $ do
