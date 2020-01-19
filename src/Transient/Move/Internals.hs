@@ -2920,8 +2920,8 @@ connectionTimeouts=  do
                   -- time etc are in a IORef
     mapM_ (\c -> liftIO $ do
 
-                    putStr "close "
-                    print $ idConn c
+                    return () !> "close "
+                    return () !> idConn c
                     mclose c;
                     writeIORef (connData c) Nothing       -- close should put Nothing in connection
                     modifyIORef globalFix $ \m -> M.insert (idConn c) (False,[]) m -- reset the remote accessible closures
