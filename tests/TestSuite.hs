@@ -79,7 +79,7 @@ test=  initNodeServ service  "localhost" 8080 $ do
 
           localIO $ putStrLn "----------------checking monadic, distributed-------------"
           r <- runAt node0 (SHOULDRUNIN(node0)
-                  >> runAt node1 (SHOULDRUNIN (node1)
+                  >> runAt node1 (SHOULDRUNIN(node1)
                        >> runAt node2 (SHOULDRUNIN(node2) >>  (return "HELLO" ))))
 
           assert(r== "HELLO") $ localIO $ print r
