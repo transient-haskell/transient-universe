@@ -24,11 +24,11 @@ import           Control.Concurrent(threadDelay )
 
 
 
-#define shouldRun(x)    (local $ do p <-getMyNode; liftIO $ print (p,x) ;assert ( p == (x)) (liftIO $ print p))
+#define SHOULDRUNIN(x)    (local $ do p <-getMyNode; liftIO $ print (p,x) ;assert ( p == (x)) (liftIO $ print p))
 
 -- #define _UPK_(x) {-# UNPACK #-} !(x)
 
--- shouldRun x=  local $ getMyNode >>= \p ->  assert ( p == (x)) (liftIO $ print p)
+-- SHOULDRUNIN x=  local $ getMyNode >>= \p ->  assert ( p == (x)) (liftIO $ print p)
 
 service= [("service","test suite")
          ,("executable", "test-transient1")
@@ -62,30 +62,30 @@ test=  initNodeServ service  "localhost" 8080 $ do
           localIO $ putStrLn "------checking  empty in remote node when the remote call back to the caller #46 --------"
           
           r <- runAt node1 $ do
-               shouldRun(node1)
-               runAt node2 $  (runAt node1 $ shouldRun(node1) >> empty ) <|>  (shouldRun(node2) >> return "world")
+               SHOULDRUNIN(node1)
+               runAt node2 $  (runAt node1 $ SHOULDRUNIN(node1) >> empty ) <|>  (SHOULDRUNIN(node2) >> return "world")
           localIO $ print r
           
 
           localIO $ putStrLn "------checking Alternative distributed--------"
           r <- local $   collect 3 $
-                   runCloud $ (runAt node0 (shouldRun( node0) >> return "hello" ))
-                         <|>  (runAt node1 (shouldRun( node1) >> return "world" ))
-                         <|>  (runAt node2 (shouldRun( node2) >> return "world2" ))
+                   runCloud $ (runAt node0 (SHOULDRUNIN( node0) >> return "hello" ))
+                         <|>  (runAt node1 (SHOULDRUNIN( node1) >> return "world" ))
+                         <|>  (runAt node2 (SHOULDRUNIN( node2) >> return "world2" ))
 
           assert(sort r== ["hello", "world","world2"]) $ localIO $  print r         
           
           localIO $ putStrLn "--------------checking Applicative distributed--------"
-          r <- loggedc $(runAt node0 (shouldRun( node0) >> return "hello "))
-                    <>  (runAt node1 (shouldRun( node1) >> return "world " ))
-                    <>  (runAt node2 (shouldRun( node2) >> return "world2" ))
+          r <- loggedc $(runAt node0 (SHOULDRUNIN( node0) >> return "hello "))
+                    <>  (runAt node1 (SHOULDRUNIN( node1) >> return "world " ))
+                    <>  (runAt node2 (SHOULDRUNIN( node2) >> return "world2" ))
 
           assert(r== "hello world world2") $ localIO $ print r
 
           localIO $ putStrLn "----------------checking monadic, distributed-------------"
-          r <- runAt node0 (shouldRun(node0)
-                  >> runAt node1 (shouldRun (node1)
-                       >> runAt node2 (shouldRun(node2) >>  (return "HELLO" ))))
+          r <- runAt node0 (SHOULDRUNIN(node0)
+                  >> runAt node1 (SHOULDRUNIN (node1)
+                       >> runAt node2 (SHOULDRUNIN(node2) >>  (return "HELLO" ))))
 
           assert(r== "HELLO") $ localIO $ print r
  
