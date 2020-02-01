@@ -136,7 +136,7 @@ controlNodeProcess cmdline= do
                  
       inputs exnode= do  
 
-          line <- local $ inputf False "input"  Nothing (const True)  
+          line <- local $ inputf False "input"  "" Nothing (const True)  
           sendExecuteStream cmdline line
          
       

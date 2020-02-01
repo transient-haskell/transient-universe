@@ -29,6 +29,9 @@ import Data.Typeable
 import Data.List((\\))
 
 import Control.Exception hiding(onException)
+import System.IO.Unsafe
+
+rretry= unsafePerformIO $ newIORef False
 
 -- | ask in the console for the port number and initializes a node in the port specified
 -- It needs the application to be initialized with `keep` to get input from the user.
@@ -57,20 +60,26 @@ import Control.Exception hiding(onException)
 --
 initNode :: Loggable a => Cloud a -> TransIO a
 initNode app= do
-   node <- getNodeParams 
+   node <- getNodeParams -- <|> maybeRetry
 
    rport <- liftIO $ newIORef $ nodePort node
    node' <- return node `onException'` ( \(e :: IOException) -> do
              if (ioeGetErrorString e ==  "resource busy") 
               then do
                  liftIO $ putStr "Port busy: " >> print (nodePort node)
-                 continue
+                 retry <- liftIO $ readIORef rretry
+                 if retry then do liftIO $ print "retrying with next port" ;continue else empty
                  port <- liftIO $ atomicModifyIORef rport $ \p -> (p+1,p+1)
                  return node{nodePort= port}
               else return node )
    return () !> ("NODE", node')
    initWebApp node' app
 
+maybeRetry= do
+   option "retry"  "set node to retry sucessive ports at start if fail"
+   liftIO $ print "retry set"
+   liftIO $ writeIORef rretry True
+   empty
 
 getNodeParams  :: TransIO Node
 getNodeParams  =
@@ -80,11 +89,12 @@ getNodeParams  =
 #else
         do
           oneThread $ option "start" "re/start node"
+
           host <- input (const True) "hostname of this node. (Must be reachable)? "
           port <- input  (const True) "port to listen? "
           liftIO $ createNode host port
          <|> getCookie
-
+         <|> maybeRetry
     where
     getCookie= do
         if isBrowserInstance then return() else do
@@ -96,7 +106,7 @@ getNodeParams  =
     
 initNodeDef :: Loggable a => String -> Int -> Cloud a -> TransIO a
 initNodeDef host port app= do
-   node <- def <|> getNodeParams
+   node <- def <|> getNodeParams -- <|> maybeRetry
    initWebApp node app
    where
    def= do

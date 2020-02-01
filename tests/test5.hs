@@ -1,9 +1,9 @@
 #!/usr/bin/env execthirdlinedocker.sh
 --  info: use sed -i 's/\r//g' file if report "/usr/bin/env: ‘execthirdlinedocker.sh\r’: No such file or directory"
--- LIB="/home/vsonline/workspace" && runghc    -i${LIB}/transient/src -i${LIB}/transient-universe/src -i${LIB}/axiom/src   $1 ${2} ${3}
+-- LIB="/home/vsonline/workspace" && ghc  -DDEBUG   -i${LIB}/transient/src -i${LIB}/transient-universe/src -i${LIB}/transient-universe-tls/src -i${LIB}/axiom/src   $1 && ./`basename $1 .hs` ${2} ${3}
 
--- mkdir -p ./static && ghcjs --make   -i../transient/src -i../transient-universe/src  -i../axiom/src   $1 -o static/out && runghc   -i../transient/src -i../transient-universe/src -i../axiom/src   $1 ${2} ${3}
-
+-- mkdir -p ./static && ghcjs --make   -i../transient/src -i../transient-universe/src -i../transient-universe-tls/src  -i../axiom/src   $1 -o static/out && runghc   -i../transient/src -i../transient-universe/src -i../axiom/src   $1 ${2} ${3}
+-- 
 
 -- cd /projects/transient && cabal install -f debug --force-reinstalls && cd ../transient-universe && cabal install --force-reinstalls &&  runghc $1 $2 $3 $4
 
@@ -13,6 +13,7 @@ module Main where
 import Transient.Base
 import Transient.Move.Internals
 import Transient.Internals
+import Transient.TLS
 import Transient.Move.Utils
 import Control.Applicative
 import Control.Monad.IO.Class
@@ -26,11 +27,24 @@ import Control.Concurrent
 import Control.Concurrent.STM.TChan
 import Transient.EVars
 import Data.Monoid
-import Data.ByteString.Builder
-import Transient.Parse
 import Transient.Move.Services
 import Transient.Indeterminism
+import Data.IORef
 
+
+ 
+
+main= keep' $ initNode $ do
+    result <- local $ heavycomputation
+    teleport
+    str <- local $ return "firstparam"
+    str2 <- local $ return "secondparam"
+    showURL
+    process result str str2
+    teleport
+    where
+    heavycomputation= return "heavycompresult"
+    process result  str str2= local $ return  $ result++ str++str2
 
 main3 = keep $ initNode $ hi "hello" <|> hi "world"
   where
@@ -39,12 +53,22 @@ main3 = keep $ initNode $ hi "hello" <|> hi "world"
      localIO $ putStrLn text
      teleport  <** modify (\s -> s{execMode=Remote})
      
-main = keep $ initNode $ inputNodes <|> hi
+main4 = do initTLS; keep $ initNode $ inputNodes <|> hi
   where
+  ps= onAll $ do
+            conn <- getSData
+            sdata <- liftIO $ readIORef $ connData conn
+            case sdata of
+                Just (HTTPS2Node _) -> liftIO$ print "SSL XXXXXXXXXXXXXXXXXXX"
+
+                Just (TLSNode2Node _) -> liftIO$ print "SSL XXXXXXXXXXXXXXXXXXX"
+                _ -> liftIO $ print "NOSSL YYYYYYYYYYYYYYYYYYY"
   hi = do
+        ps 
         showURL
         localIO $ putStrLn "hello"
         let x= "hello "
+        ps
         teleport
         showURL 
         localIO $ print $ x ++ "world"
@@ -63,7 +87,9 @@ test10= do
     local $ return (42 :: Int)
     teleport
 
-main2 = keep $ initNode $ inputNodes <|>  do
+main2 = do 
+  initTLS
+  keep $ initNode $ inputNodes <|>  do
     local $ option "r" "run"
     i <- atOtherNode $ do 
        showURL
@@ -119,7 +145,10 @@ test5= do
       liftIO $ print "PROC"
       
       (async $ do (readMVar v1) >>= print)
-      
+
+
+
+
 test3= do
     v <- newEVar
     -- option "r" "run"

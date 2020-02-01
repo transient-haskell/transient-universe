@@ -2,7 +2,7 @@
 
 -- cd /projects/transient && cabal install -f debug --force-reinstalls && cd ../transient-universe && cabal install --force-reinstalls && ghc $1 && exec=`dirname $1`/`basename $1 .hs` && cp $exec /opt/cabal/bin/ && echo $exec $2 $3 $4 && $exec $2 $3 $4
 
-{-# LANGUAGE   CPP, ScopedTypeVariables #-}
+{-# LANGUAGE  ScopedTypeVariables #-}
 
 
 import Transient.Internals

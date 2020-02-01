@@ -669,7 +669,7 @@ controlNodeService node=  send <|> receive
                  putStrLn   "------------- END OF LOG"
 
       inputs= do           
-          line <- local $ inputf False "input"  Nothing (const True)  
+          line <- local $ inputf False "input" "" Nothing (const True)  
           sendToNodeStandardInput node line
 
 
@@ -712,12 +712,12 @@ controlNode node= send <|> receive
               log <- Transient.Move.Services.getLog node
               localIO $ do
                  
-                 putStr "\n\n------------- LOG OF NODE: ">> print node >> putStrLn ""
+                 putStr "\n\n------------- LOG OF NODE: " >> print node >> putStrLn ""
                  mapM_ BS.putStrLn $ BS.lines log
                  putStrLn   "------------- END OF LOG"
 
       inputs= do           
-          line <- local $ inputf False "input"  Nothing (const True)  
+          line <- local $ inputf False "input"  "" Nothing (const True)  
           callService' node $ SendToInput line :: Cloud ()
 
 

@@ -58,7 +58,7 @@ import GHC.IO.Handle
 
 #define shouldRun(x)    (local $ do p <-getMyNode; liftIO $ print (p,x) ;assert ( p == (x)) (liftIO $ print p))
 
-main= keep $  initNode $ inputNodes <|> do
+main6= keep $  initNode $ inputNodes <|> do
     local $ option "r" "r"
     nodes <- local getNodes
     let node0= nodes !! 0
@@ -158,7 +158,7 @@ nserve name serv= do
 
    
 
-main6 = keep $ initNode $ inputNodes <|> do
+main = keep $ initNode $ inputNodes <|> do
      local $ option (str "go") "go"
      nodes <- local getNodes
      localFix

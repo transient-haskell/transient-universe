@@ -98,60 +98,6 @@ import Control.Concurrent
 import System.Mem.StableName
 import Unsafe.Coerce
 
-instance Loggable ()
-instance Loggable Node
-instance Loggable Bool where 
-  serialize b= if b then "t" else "f"
-  deserialize = withGetParseString $ \s -> 
-     if (BS.head $ BS.tail s) /= '/'   
-        then empty 
-        else
-            let h= BS.head s
-                tail=  BS.tail s
-            in if h== 't' then return (True,tail)  else if h== 'f' then return (False, tail) else empty 
-
-instance Loggable Int
-
-instance Loggable a => Loggable[a]  
---    serialize x= if typeOf x= typeOf (undefined :: String) then BS.pack x else BS.pack $ show x
---    deserialize= let [(s,r)]= 
-
-instance Loggable Char
-instance Loggable Float
-instance Loggable Double
-instance Loggable a => Loggable (Maybe a)
-instance (Loggable a,Loggable b) => Loggable (a,b)
-instance (Loggable a,Loggable b, Loggable c) => Loggable (a,b,c)
-instance (Loggable a,Loggable b, Loggable c,Loggable d) => Loggable (a,b,c,d)
-
--- #ifdef ghcjs_HOST_OS
-
-
--- intDec i= Builder $ \s -> pack (show i) <> s
--- int64Dec i=  Builder $ \s -> pack (show i) <> s
-
--- #endif
-instance (Loggable k, Ord k, Loggable a) => Loggable (M.Map k a)  where
-  serialize v= intDec (M.size v) <> M.foldlWithKey' (\s k x ->  s <> "/" <> serialize k <> "/" <> serialize x ) mempty v
-  deserialize= do
-      len <- int
-      list <- replicateM len $
-                 (,) <$> (tChar '/' *> deserialize)
-                     <*> (tChar '/' *> deserialize)
-      return $ M.fromList list
-
-#ifndef ghcjs_HOST_OS
-instance Loggable BS.ByteString where
-        serialize str =  lazyByteString str
-        deserialize= tTakeWhile (/= '/')
-#endif
-
-#ifndef ghcjs_HOST_OS
-instance Loggable B.ByteString where
-        serialize str =  byteString str
-        deserialize = tTakeWhile (/= '/') >>= return . BS.toStrict
-#endif
-instance Loggable SomeException
 
 {- TODO
   timeout for closures: little smaller in sender than in receiver
@@ -171,6 +117,8 @@ data Node= Node{ nodeHost   :: HostName
                }
 
          deriving (Typeable)
+
+instance Loggable Node
 
 instance Ord Node where
    compare node1 node2= compare (nodeHost node1,nodePort node1)(nodeHost node2,nodePort node2)
@@ -212,8 +160,8 @@ tlsHooks ::IORef (SData -> BS.ByteString -> IO ()
 tlsHooks= unsafePerformIO $ newIORef
                  ( notneeded
                  , notneeded
-                 , \_ i -> tlsNotSupported i
-                 , \_ _ _-> return()
+                 , \_ i ->  tlsNotSupported i
+                 , \_ _ _->  return()
                  , \_ -> return())
 
   where
@@ -365,7 +313,7 @@ callTo' node remoteProc=  do
 
 atRemote :: Loggable a => Cloud a -> Cloud a
 atRemote proc=  loggedc' $ do
-
+     --modify $ \s -> s{execMode=Parallel}
      teleport                                             --  !> "teleport 1111"
 
      modify $ \s -> s{execMode= if execMode s== Parallel then Parallel else Serial}   -- modifyData' f1 Serial
@@ -387,7 +335,6 @@ atRemote proc=  loggedc' $ do
 -- | synonymous of `callTo`
 runAt :: Loggable a => Node -> Cloud a -> Cloud a
 runAt= callTo
-
 
 
 -- | run a single thread with that action for each connection created.
@@ -532,7 +479,9 @@ syncStream proc=  do
 
 
 teleport :: Cloud ()
-teleport  =  local $ Transient $ do
+teleport  =  do
+  modify $ \s -> s{execMode=if execMode s == Remote then Remote else Parallel}
+  local $ Transient $ do
      labelState  "teleport"
 
      cont <- get
@@ -614,7 +563,7 @@ teleport  =  local $ Transient $ do
 
           return Nothing
 
-      else  return $ Just ()
+      else return $ Just ()
 
 
 
@@ -652,7 +601,7 @@ globalFix = unsafePerformIO $ newIORef (M.empty :: M.Map ConnectionId (HasClosed
 data LocalFixData= LocalFixData{ isService :: Bool
                                 , lengthFix :: Int
                                 , closure :: Int
-                                , fixedConnections :: IORef [Int] -- List of connections that created
+                                , fixedConnections :: IORef [ConnectionId] -- List of connections that created
                                                                   -- that closure in the remote node
 
                                 , prevFix :: Maybe LocalFixData} deriving Show
@@ -662,14 +611,16 @@ instance Show a => Show (IORef a) where
 
 -- data LocalFixData=  LocalFixData Bool Int Int (IORef (M.Map Int Int))
 
-
+-- first flag forces the first teleport after localFix not to send the complete log against closure 0, otherwhise, the execution of teleport request will do it
+--
+-- the second flag creates a closure that is invoked ever, even if  localfix is re-executed. If this second flag is false,
+-- a reexecution localFix will recreate the remote closure, perhaps with different  variables.
 localFixServ isService isGlobal= Cloud $ noTrans $ do
    log <- getLog
-   Connection{..} <- getData `onNothing` error "teleport: No connection defined: use wormhole"
+   Connection{..} <- getData `onNothing` error "teleport: No connection set: use initNode"
 
    if recover log
      then do
-
          cont <- get
          mv <- liftIO  newEmptyMVar
          liftIO $ modifyMVar_ localClosures $ \map ->  return $ M.insert (hashClosure log) (mv,cont) map
@@ -692,11 +643,11 @@ localFixServ isService isGlobal= Cloud $ noTrans $ do
                        in  M.insert idConn  (closed,(hashClosure log, ref):l) map
                   return ref
          mmprevFix <- liftIO $ readIORef ref >>= \l -> return $ if Prelude.null l then  Nothing else mprevFix
-         let newfix =LocalFixData{ isService = isService
-                                 , lengthFix = fromIntegral $ BS.length $ toLazyByteString $ fulLog log
-                                 , closure = hashClosure log
+         let newfix =LocalFixData{ isService =        isService
+                                 , lengthFix =        fromIntegral $ BS.length $ toLazyByteString $ fulLog log
+                                 , closure =          hashClosure log
                                  , fixedConnections = ref
-                                 , prevFix = mmprevFix}
+                                 , prevFix =          mmprevFix}
          setState newfix
 
 
@@ -928,7 +879,7 @@ msend con r= do
          n <- liftIO $ readIORef $ remoteNode con
          case n of
           Nothing -> error "connection closed by caller"
-          Just(node@(Node _ _ _ _)) ->  do
+          Just node ->  do
             r <- runTrans $ mconnect node
             case r of
                Nothing -> error $ "can not reconnect with " ++ show n
@@ -936,31 +887,37 @@ msend con r= do
      Just _ -> return con
   let blocked= isBlocked con
   c <- liftIO $ readIORef $ connData con
+  let bs = toLazyByteString $ serialize r
+
   liftIO $ modifyMVar_ blocked $ const $ do
-    case c of
-     Just (Node2Node _ sock _) -> do
-              let bs = toLazyByteString $ serialize r
+
+    case c of 
+
+      Just (TLSNode2Node ctx) -> do
+              return () !> "TLSSSSSSSSSSS SEND"
+              sendTLSData  ctx $ toLazyByteString $ int64Dec $ BS.length bs
+              sendTLSData  ctx bs
+      Just (Node2Node _ sock _) -> do
+              return () !> "NODE2NODE SEND"
               SBSL.send sock $ toLazyByteString $ int64Dec $ BS.length bs
               SBSL.sendAll sock bs
-     Just (HTTP2Node _ sock _)  -> do
-              let bs = toLazyByteString $ serialize r
-              -- let len=  BS.length bs
-              --    lenstr= toLazyByteString $ int64Dec $ len
 
-              -- SBSL.send sock $ "HTTP/1.0 200 OK\r\nContent-Type: text/html" -- \r\nContent-Length: " <> lenstr
-                    -- <>"\r\n" <> "Set-Cookie:" <> "cookie=" <> cook -- <> "\r\n"
-              --      <>"\r\n\r\n"
-
+      Just (HTTP2Node _ sock _)  -> do
+              return () !> "HTTP2NODE SEND"
               SBSL.sendAll sock $ bs <> "\r\n" 
-              
-     Just (Node2Web sconn) -> do
+
+      Just (HTTPS2Node ctx)  -> do
+              return () !> "HTTPS2NODE SEND"
+              sendTLSData  ctx $ bs <> "\r\n" 
+
+      Just (Node2Web sconn) -> do
          -- {-withMVar blocked $ const $ -} WS.sendTextData sconn $ serialize r -- BS.pack (show r)    !> "websockets send"
            liftIO $   do
               let bs = toLazyByteString $ serialize r
               WS.sendTextData sconn $ toLazyByteString $ int64Dec $ BS.length bs
               WS.sendTextData sconn bs   -- !> ("N2N SEND", bd)
 
-     _ -> error "msend out of connection context: use wormhole to connect"
+      _ -> error "msend out of connection context: use wormhole to connect"
 
     TOD time _ <- getClockTime
     return $ Just time
@@ -1392,8 +1349,8 @@ mconnect  node'=  do
 
         conn <- getSData <|> error "mconnect: no connection data"
         cookie <- liftIO $ readIORef rcookie
-        sendRaw conn $ "CLOS " <> cookie  <> " b \r\nField: value\r\n\r\n"  -- TODO put it standard: Set-Cookie:...
-
+        sendRaw conn $ "CLOS " <> cookie  <> --" b \r\nField: value\r\n\r\n"  -- TODO put it standard: Set-Cookie:...
+            " b \r\nHost: " <> BS.pack host <> "\r\nPort: " <> BS.pack (show port) <> "\r\n\r\n"
 
         r <- liftIO $ readFrom conn
 
@@ -1408,7 +1365,7 @@ mconnect  node'=  do
                cdata <- liftIO $ readIORef rcdata
                case cdata of
                      Just(Node2Node _ s _) ->  liftIO $ NS.close s -- since the HTTP firewall closes the connection
---                   Just(TLSNode2Node c) -> contextClose c
+                     Just(TLSNode2Node c) -> liftIO $ tlsClose c
                empty
 
     connectWebSockets host port = connectWebSockets1 host port "/"
@@ -1543,6 +1500,7 @@ data ConnectionData=
                             ,sockAddr :: NS.SockAddr
                              }
                    | TLSNode2Node{tlscontext :: SData}
+                   | HTTPS2Node{tlscontext :: SData}
                    | Node2Web{webSocket :: WS.Connection}
                    | HTTP2Node{port :: PortID
                             ,socket ::Socket
@@ -1739,7 +1697,9 @@ listenNew port conn'=  do
    setState conn'
    liftIO $ atomicModifyIORef connectionList $ \m -> (conn': m,()) -- TODO 
 
+   return () !> "BEFORE HANDSHAKE"
    maybeTLSServerHandshake sock input
+
 
 
 
@@ -1747,12 +1707,12 @@ listenNew port conn'=  do
 
    firstLine@(method, uri, vers) <- getFirstLine
 
-
-   return () !> "after getfirstLine"
-
+   
+   return () !> ("after getfirstLine", method, uri, vers)
+   
    headers <- getHeaders
    setState $ HTTPHeaders firstLine headers
-
+   -- return () !> ("HEADERS", headers)
    -- string "\r\n\r\n"
    -- return () !> (method, uri,vers)
    case (method, uri) of
@@ -1760,6 +1720,10 @@ listenNew port conn'=  do
      ("CLOS", hisCookie) ->
           do
            conn <- getSData
+           let host = BC.unpack $ fromMaybe (error "no host in header")$ lookup "Host" headers 
+               port = read $ BC.unpack $ fromMaybe (error "no port in header")$ lookup "Port" headers
+           remNode <- liftIO $ createNode host  port
+           liftIO $ writeIORef (remoteNode conn) $ Just remNode
            myCookie <- liftIO $ readIORef rcookie
            if BS.toStrict myCookie /=  hisCookie
             then do
@@ -1843,6 +1807,7 @@ listenNew port conn'=  do
                 sconn <- makeWebsocketConnection conn uri headers
 
                 -- websockets mode
+                -- para qué reiniciarlo todo????
                 rem <- liftIO $ newIORef Nothing
                 chs <- liftIO $ newIORef M.empty
                 cls <- liftIO $ newMVar M.empty
@@ -1900,13 +1865,18 @@ listenNew port conn'=  do
                       deserialize <|> (return $ SMore (ClosureData 0 0  (exec <> lazyByteString s)))
               else  do  
                 let uriparsed=  BS.pack $ unEscapeString $ BC.unpack uri'
-                setParseString uriparsed 
+                setParseString uriparsed !> ("uriparsed",uriparsed)
                 remoteClosure <- deserialize    :: TransIO Int
                 tChar '/'
                 thisClosure <- deserialize      :: TransIO Int
                 tChar '/'
-                cdata <- liftIO $ newIORef $ Just (HTTP2Node (PortNumber port) sock addr)
-                setState conn{connData=cdata}
+                --cdata <- liftIO $ newIORef $ Just (HTTP2Node (PortNumber port) sock addr)
+                conn <- getSData
+                liftIO $ atomicModifyIORef' (connData conn) $ \cdata -> case cdata of 
+                         Just(Node2Node  port sock addr) -> (Just $ HTTP2Node port sock addr,())
+                         Just(TLSNode2Node ctx) -> (Just $ HTTPS2Node ctx,())
+
+                --setState conn{connData=cdata}
                 s <- giveParseString
                 cook <- liftIO $ readIORef rcookie
 
@@ -2007,6 +1977,9 @@ noHTTP= onAll $ do
     conn <- getState
     cdata <- liftIO $ readIORef $ connData conn
     case cdata of
+      Just (HTTPS2Node ctx) -> do
+        liftIO $ sendTLSData ctx $  "HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 11\r\n\r\nForbidden\r\n"
+        liftIO $ tlsClose ctx      
       Just (HTTP2Node _ sock _) -> do
         liftIO $ SBSL.sendAll sock $  "HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 11\r\n\r\nForbidden\r\n"
         liftIO $ NS.close sock
@@ -2179,7 +2152,6 @@ execLog  mlog =Transient $ do
 
        case mlog of
         Left except -> do
-          -- setData $ Log{recover= True, buildLog=mempty, fulLog= mempty, lengthFull= 0, hashClosure= 0} --Log True [] []
           setData emptyLog
           return () !> "Exception received from network 1"
           runTrans $ throwt except
@@ -2238,7 +2210,6 @@ execLog  mlog =Transient $ do
                   runContinuation cont ()
 
                 Left except -> do
-                  -- setData $ Log{recover= True, buildLog=mempty, fulLog= mempty, lengthFull= 0, hashClosure= 0} --Log True [] []-- setData $  Log True  []  []
                   setData emptyLog
                   return () !> ("Exception received from the network", except)
                   runTrans $ throwt except) cont
@@ -2909,14 +2880,14 @@ connectionTimeouts  :: TransIO ()
 connectionTimeouts=  do
     threads 0 $ choose[0..]    --loop
     liftIO $ threadDelay 10000000
-    return () !> "timeouts"
+    -- return () !> "timeouts"
     TOD time _ <- liftIO $  getClockTime
     toClose <- liftIO $  atomicModifyIORef connectionList $ \ cons ->
                   Data.List.partition (\con ->
                      let mc= unsafePerformIO $ readMVar $ isBlocked con
 
                      in   isNothing mc || -- check that is not doing some IO
-                        (((time - fromJust mc !> (time,mc)) < delta) )) cons !> Data.List.length cons
+                        ((time - fromJust mc) < delta) ) cons  -- !> Data.List.length cons
                   -- time etc are in a IORef
     mapM_ (\c -> liftIO $ do
 
