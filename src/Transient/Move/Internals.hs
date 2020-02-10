@@ -2374,10 +2374,23 @@ api w= Cloud $ do
 
        return () !> (vers, hdrs)
 
-       when (vers == "HTTP/1.0" || lookup "Connection" hdrs == Just "close") $ liftIO $ mclose conn
+       let http10= "HTTP/1.0"
+       when (vers == http10                            || 
+             BS.isPrefixOf http10 r                    || 
+             lookup "Connection" hdrs == Just "close"  ||
+             closeInResponse r) 
+             $ liftIO $ mclose conn
+    where
+    closeInResponse r=
+       let rest= findSubstring "Connection:" r
+           rest' = BS.dropWhile (==' ') rest
+       in if BS.isPrefixOf "close" rest' then True else False
 
-
-
+       where
+       findSubstring sub str
+           | BS.null str = str
+           | BS.isPrefixOf sub str = BS.drop (BS.length sub) str 
+           | otherwise= findSubstring sub (BS.tail str)
 
 
 
