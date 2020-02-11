@@ -1125,12 +1125,13 @@ mread (Connection _ _ _  (Just (Node2Web sconn )) _ _ _ _ _ _ _)= do
 
 -}
 
+many' p= p <|> many' p
+
 parallelReadHandler :: Loggable a => Connection -> TransIO (StreamData a)
 parallelReadHandler conn= do
     onException $ \(e:: IOError) -> empty
     many' extractPacket
     where
-    many' p= p <|> many' p
     extractPacket= do
         len <- integer <|> (do s <- getParseBuffer; error $ show $ ("malformed data received: expected Int, received: ", BS.take 5 s))
         str <- tTake (fromIntegral len)
@@ -1739,6 +1740,10 @@ listenNew port conn'=  do
                mread conn
 
      _ -> do
+           (cutBody method headers >> abduce) <|> many' cutHTTPRequest
+
+           HTTPHeaders (method,uri,vers) headers <- getState <|>  error "HTTP: no headers?"
+           
            let uri'= BC.tail $ uriPath uri !> uriPath uri
            return () !>  ("uri'", uri')
 
@@ -1888,6 +1893,23 @@ listenNew port conn'=  do
 
 
      where
+      cutHTTPRequest = do
+          first@(method,_,_) <- getFirstLine
+          -- return () !> ("after getfirstLine", method, uri, vers)
+          headers <- getHeaders
+          setState $ HTTPHeaders first headers
+          cutBody method headers
+          abduce
+
+
+      cutBody method headers= do
+          when (method == "POST") $ do
+              case fmap (read . BC.unpack) $ lookup "Content-Length" headers of
+                Nothing -> return () -- most likely chunked encoding
+                Just len -> do
+                  str <- tTake (fromIntegral len)
+                  setParseString str
+                  
       uriPath = BC.dropWhile (/= '/')
       split []= []
       split ('/':r)= split r
