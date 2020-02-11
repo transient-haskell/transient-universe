@@ -1740,7 +1740,7 @@ listenNew port conn'=  do
                mread conn
 
      _ -> do
-           (cutBody method headers >> abduce) <|> many' cutHTTPRequest
+           cutBody method headers <|> many' cutHTTPRequest
 
            HTTPHeaders (method,uri,vers) headers <- getState <|>  error "HTTP: no headers?"
            
