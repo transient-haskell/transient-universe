@@ -1899,16 +1899,18 @@ listenNew port conn'=  do
           headers <- getHeaders
           setState $ HTTPHeaders first headers
           cutBody method headers
-          abduce
+          
 
 
       cutBody method headers= do
-          when (method == "POST") $ do
+          if method == "POST" then
               case fmap (read . BC.unpack) $ lookup "Content-Length" headers of
                 Nothing -> return () -- most likely chunked encoding
                 Just len -> do
                   str <- tTake (fromIntegral len)
+                  abduce
                   setParseString str
+            else abduce
                   
       uriPath = BC.dropWhile (/= '/')
       split []= []
